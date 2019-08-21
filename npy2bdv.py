@@ -24,7 +24,6 @@ class BdvWriter:
         Example: 2 time points, 2 channels.
             fname = "./fish_timeser40_chan2_classtest6.h5"
             bdv_writer = BdvWriter(fname, nsetups = 2, subsamp=((1,1,1),))
-            bdv_writer.write_setups_header()
             stack = np.random.randint(0,100,size=(41,1024,2048),dtype='int16')
             bdv_writer.append_view(stack,itime=0,isetup=0)
             bdv_writer.append_view(stack,itime=0,isetup=1)
@@ -45,6 +44,7 @@ class BdvWriter:
         self.compression = compression
         self.filename = filename
         self.file_object = h5py.File(filename, 'a')
+        self.write_setups_header()
 
     def write_setups_header(self):
         """Write resolutions and subdivisions for all setups into h5 file."""
@@ -120,6 +120,8 @@ class BdvWriter:
         assert nchannels >= 1, "Total number of channels must be at least 1."
         assert ntiles >= 1, "Total number of tiles must be at least 1."
         assert nangles >= 1, "Total number of angles must be at least 1."
+        assert nilluminations * nchannels * ntiles * nangles == self.nsetups, \
+            "Total number of (illuminations x channels x tiles x angles) does not match the setup number."
         nz, ny, nx = tuple(self.stack_shape)
         root = ET.Element('SpimData')
         root.set('version', '0.2')

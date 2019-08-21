@@ -6,7 +6,6 @@ import npy2bdv
 print("Example1: writing 2 time points and 2 channels")
 fname = "./timepts2_channels2.h5"
 bdv_writer = npy2bdv.BdvWriter(fname, nsetups=2, subsamp=((1, 1, 1),))
-bdv_writer.write_setups_header()
 rand_stack = np.random.randint(0, 100, size=(41, 1024, 2048), dtype='int16')
 bdv_writer.append_view(rand_stack, itime=0, isetup=0)
 bdv_writer.append_view(rand_stack, itime=0, isetup=1)
@@ -22,7 +21,6 @@ bdv_writer = npy2bdv.BdvWriter(fname, nsetups=2, subsamp=((1, 1, 1),))
 ntimes = 20
 nchannels = 2
 start_time_total = time.time()
-bdv_writer.write_setups_header()
 i_stacks = 0
 time_list = []
 for isetup in range(nchannels):
