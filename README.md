@@ -13,9 +13,9 @@
  data type `uint16`.
  
  ## Pipeline
- When a writer object is created, it creates a new h5 file for writing 
- and requires info about setups and saving file: 
- number of setup attributes (e.g. channels, angles), compression and subsampling method (if any). 
+ When a writer object is created, it opens a new h5 file  
+ and requires info about setups and saving: 
+ number of setup attributes (e.g. channels, angles), compression and subsampling (if any). 
  File name must be new to avoid accidental data loss due to file re-writing.
  
  The image stacks (3d numpy arrays) are appended to h5 file 
@@ -23,7 +23,7 @@
  Time point `time` and attributes (e.g `channel`, `angle`) must be specified 
  for each view.
  
- The XML file is created by calling `.write_xml_file()`.
+ The XML file is created at the end by calling `.write_xml_file()`.
  Total number of time points in the experiment `ntimes` 
  must be specified here (so, it may be unknown in the beginning of acquisition).
   
