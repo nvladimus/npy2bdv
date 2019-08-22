@@ -10,34 +10,43 @@ import skimage.transform
 
 
 class BdvWriter:
-    def __init__(self, filename, nsetups=1, subsamp=((1, 1, 1),), compression=None):
+    def __init__(self, filename, subsamp=((1, 1, 1),), compression=None,
+                 nilluminations=1, nchannels=1, ntiles=1, nangles=1):
         """Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.
 
         Parameters:
             filename: (string) full path to a new file
-            nsetups: (int) total number of setups (e.g. angles or channels)
             subsamp: (tuple of tuples) subsampling levels in z,y,x order. Integers >= 1, default value ((1, 1, 1),)
             compression: (None, 'gzip', 'lzf'), HDF5 compression method. Default is None, for high-speed writing.
+            nilluminations, nchannels, ntiles, nangles: (int) number of view attributes, default 1.
 
         Notes: input stacks and output files are assumed uint16 type.
 
         Example: 2 time points, 2 channels.
             fname = "./fish_timeser40_chan2_classtest6.h5"
-            bdv_writer = BdvWriter(fname, nsetups = 2, subsamp=((1,1,1),))
+            bdv_writer = BdvWriter(fname, nchannels = 2, subsamp=((1,1,1),))
             stack = np.random.randint(0,100,size=(41,1024,2048),dtype='int16')
-            bdv_writer.append_view(stack,itime=0,isetup=0)
-            bdv_writer.append_view(stack,itime=0,isetup=1)
-            bdv_writer.append_view(stack,itime=1,isetup=0)
-            bdv_writer.append_view(stack,itime=1,isetup=1)
-            bdv_writer.write_xml_file(ntimes=2, nchannels=2)
+            bdv_writer.append_view(stack, time=0, channel=0)
+            bdv_writer.append_view(stack, time=0, channel=1)
+            bdv_writer.append_view(stack, time=1, channel=0)
+            bdv_writer.append_view(stack, time=1, channel=1)
+            bdv_writer.write_xml_file(ntimes=2)
             bdv_writer.close()
         """
+        assert nilluminations >= 1, "Total number of illuminations must be at least 1."
+        assert nchannels >= 1, "Total number of channels must be at least 1."
+        assert ntiles >= 1, "Total number of tiles must be at least 1."
+        assert nangles >= 1, "Total number of angles must be at least 1."
         assert compression in (None, 'gzip', 'lzf'), 'Unknown compression type'
         assert not os.path.exists(filename), "File already exists, writing terminated"
         assert all([isinstance(element, int) for tupl in subsamp for element in
                     tupl]), 'subsamp values should be integers >= 1.'
 
-        self.nsetups = nsetups
+        self.nsetups = nilluminations * nchannels * ntiles * nangles
+        self.nilluminations = nilluminations
+        self.nchannels = nchannels
+        self.ntiles = ntiles
+        self.nangles = nangles
         self.subsamp = np.asarray(subsamp)
         self.chunks = self.compute_chunk_size(self.subsamp)
         self.stack_shape = None
@@ -55,20 +64,20 @@ class BdvWriter:
             grp.create_dataset('resolutions', data=data_subsamp, dtype='<f8')
             grp.create_dataset('subdivisions', data=data_chunks, dtype='<i4')
 
-    def append_view(self, stack, itime, isetup):
+    def append_view(self, stack, time, illumination=0, channel=0, tile=0, angle=0):
         """Write numpy 3-dimensional array (stack) to h5 file at specified timepint (itime) and setup number (isetup).
         Parameters:
-            stack, 3d numpy array in (z,y,x) order, type 'uint16'.
-            itime, integer value for time index,
-            isetup, integer for setup (view, channel, or angle)
+            stack: 3d numpy array in (z,y,x) order, type 'uint16'.
+            time: (int) time index, starting from 0.
+            illumination, channel, view, angle: (int) view attributes, starting from 0.
         """
-        assert (0 <= isetup < self.nsetups), "Setup number out of range (nsetups=" + str(self.nsetups) + ")"
         assert len(stack.shape) == 3, "Stack should be a 3-dimensional numpy array (z,y,x)"
         self.stack_shape = stack.shape
         fmt = 't{:05d}/s{:02d}/{}'
         nlevels = len(self.subsamp)
+        isetup = self.determine_setup_id(illumination, channel, tile, angle)
         for ilevel in range(nlevels):
-            grp = self.file_object.create_group(fmt.format(itime, isetup, ilevel))
+            grp = self.file_object.create_group(fmt.format(time, isetup, ilevel))
             subdata = self.subsample_stack(stack, self.subsamp[ilevel])
             grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
                                maxshape=(None, None, None), compression=self.compression)
@@ -101,27 +110,16 @@ class BdvWriter:
             stack_sub = skimage.transform.downscale_local_mean(stack, tuple(subsamp_level)).astype(np.uint16)
         return stack_sub
 
-    def write_xml_file(self, ntimes=1, nilluminations=1, nchannels=1, ntiles=1, nangles=1,
-                       units='px', dx=1, dy=1, dz=1):
+    def write_xml_file(self, ntimes=1, units='px', dx=1, dy=1, dz=1):
         """
         Write XML header file for the HDF5 file.
 
         Parameters:
             ntimes, int, number of time points
-            nilluminations, int, num of illumination setups
-            nchannels, int, num of channel setups
-            ntiles, int, num of tiles
-            nangles, int, num of acquisition angles
             units, string, can be anything. Default is 'px'.
             dx, dy, dz, float, pixel size in 'units'.
         """
         assert ntimes >= 1, "Total number of time points must be at least 1."
-        assert nilluminations >= 1, "Total number of illuminations must be at least 1."
-        assert nchannels >= 1, "Total number of channels must be at least 1."
-        assert ntiles >= 1, "Total number of tiles must be at least 1."
-        assert nangles >= 1, "Total number of angles must be at least 1."
-        assert nilluminations * nchannels * ntiles * nangles == self.nsetups, \
-            "Total number of (illuminations x channels x tiles x angles) does not match the setup number."
         nz, ny, nx = tuple(self.stack_shape)
         root = ET.Element('SpimData')
         root.set('version', '0.2')
@@ -138,14 +136,14 @@ class BdvWriter:
         viewsets = ET.SubElement(seqdesc, 'ViewSetups')
 
         # write ViewSetups
-        nsetups = 0
-        for iillumination in range(nilluminations):
-            for ichannel in range(nchannels):
-                for itile in range(ntiles):
-                    for iangle in range(nangles):
+        for iillumination in range(self.nilluminations):
+            for ichannel in range(self.nchannels):
+                for itile in range(self.ntiles):
+                    for iangle in range(self.nangles):
+                        isetup = self.determine_setup_id(iillumination, ichannel, itile, iangle)
                         vs = ET.SubElement(viewsets, 'ViewSetup')
-                        ET.SubElement(vs, 'id').text = str(nsetups)
-                        ET.SubElement(vs, 'name').text = 'setup ' + str(nsetups)
+                        ET.SubElement(vs, 'id').text = str(isetup)
+                        ET.SubElement(vs, 'name').text = 'setup ' + str(isetup)
                         ET.SubElement(vs, 'size').text = '{} {} {}'.format(nx, ny, nz)
                         vox = ET.SubElement(vs, 'voxelSize')
                         ET.SubElement(vox, 'unit').text = units
@@ -155,40 +153,37 @@ class BdvWriter:
                         ET.SubElement(a, 'channel').text = str(ichannel)
                         ET.SubElement(a, 'tile').text = str(itile)
                         ET.SubElement(a, 'angle').text = str(iangle)
-                        nsetups += 1
-
-        assert nsetups == self.nsetups, "nsetups in XML file does not match nsetups in h5 file."
 
         # write Attributes (range of values)
         attrs_illum = ET.SubElement(viewsets, 'Attributes')
         attrs_illum.set('name', 'illumination')
-        for iilumination in range(nilluminations):
+        for iilumination in range(self.nilluminations):
             illum = ET.SubElement(attrs_illum, 'Illumination')
             ET.SubElement(illum, 'id').text = str(iilumination)
             ET.SubElement(illum, 'name').text = 'illumination ' + str(iilumination)
 
         attrs_chan = ET.SubElement(viewsets, 'Attributes')
         attrs_chan.set('name', 'channel')
-        for ichannel in range(nchannels):
+        for ichannel in range(self.nchannels):
             chan = ET.SubElement(attrs_chan, 'Channel')
             ET.SubElement(chan, 'id').text = str(ichannel)
             ET.SubElement(chan, 'name').text = 'channel ' + str(ichannel)
 
         attrs_tile = ET.SubElement(viewsets, 'Attributes')
         attrs_tile.set('name', 'tile')
-        for itile in range(ntiles):
+        for itile in range(self.ntiles):
             tile = ET.SubElement(attrs_tile, 'Tile')
             ET.SubElement(tile, 'id').text = str(itile)
             ET.SubElement(tile, 'name').text = 'tile ' + str(itile)
 
         attrs_ang = ET.SubElement(viewsets, 'Attributes')
         attrs_ang.set('name', 'angle')
-        for iangle in range(nangles):
+        for iangle in range(self.nangles):
             ang = ET.SubElement(attrs_ang, 'Angle')
             ET.SubElement(ang, 'id').text = str(iangle)
             ET.SubElement(ang, 'name').text = 'angle ' + str(iangle)
 
-            # Time points
+        # Time points
         tpoints = ET.SubElement(seqdesc, 'Timepoints')
         tpoints.set('type', 'range')
         ET.SubElement(tpoints, 'first').text = str(0)
@@ -197,7 +192,7 @@ class BdvWriter:
         # Transformations of coordinate system, including calibration
         vregs = ET.SubElement(root, 'ViewRegistrations')
         for itime in range(ntimes):
-            for iset in range(nsetups):
+            for iset in range(self.nsetups):
                 vreg = ET.SubElement(vregs, 'ViewRegistration')
                 vreg.set('timepoint', str(itime))
                 vreg.set('setup', str(iset))
@@ -226,6 +221,21 @@ class BdvWriter:
         else:
             if level and (not elem.tail or not elem.tail.strip()):
                 elem.tail = i
+
+    def determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
+        """Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
+        Parameters:
+            illumination (int) >=0
+            channel (int) >= 0
+            tile (int) >= 0
+            angle (int) >= 0
+        Returns
+            setup_id (int), starting from 0 (first setup)
+            """
+        setup_id_matrix = np.arange(self.nsetups)
+        setup_id_matrix = setup_id_matrix.reshape((self.nilluminations, self.nchannels, self.ntiles, self.nangles))
+        setup_id = setup_id_matrix[illumination, channel, tile, angle]
+        return setup_id
 
     def close(self):
         """Close the file object."""

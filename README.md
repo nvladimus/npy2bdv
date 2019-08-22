@@ -13,19 +13,19 @@
  data type `uint16`.
  
  ## Pipeline
- When a writer object is created, it opens a new h5 file and writes basic 
- info about setups (total number, subdivisions and resolutions). 
- File name must be new to avoid accidental data loss.
+ When a writer object is created, it creates a new h5 file for writing 
+ and requires info about setups and saving file: 
+ number of setup attributes (e.g. channels, angles), compression and subsampling method (if any). 
+ File name must be new to avoid accidental data loss due to file re-writing.
  
- The 3d image stacks (numpy arrays) are appended to h5 file 
+ The image stacks (3d numpy arrays) are appended to h5 file 
  as new views by `.append_view()`. 
- Time point `itime` and setup ID `isetup` need to be specified 
+ Time point `time` and attributes (e.g `channel`, `angle`) must be specified 
  for each view.
  
  The XML file is created by calling `.write_xml_file()`.
- Total number of time points, illuminations, channels, 
- tiles and angles must be specified and match the total 
- number of setups in h5 file.
+ Total number of time points in the experiment `ntimes` 
+ must be specified here (so, it may be unknown in the beginning of acquisition).
   
  Writing is finalized by calling `.close()`.
  
