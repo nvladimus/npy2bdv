@@ -5,6 +5,8 @@
  Default options are optimized for high-speed writing, 
  to save microscopy images on the fly at full camera speed.
  
+ Python 3.6.
+ 
  ## Installation
  Copy `npy2bdv.py` in your code folder and use `import npy2bdv`.
  
@@ -35,6 +37,7 @@
  * compression methods 'gzip', 'lzf' (no compression by default)
  * down-sampling for any number of mipmap levels (no down-sampling by default)
  * any number of time points, illuminations, channels, tiles, angles.
+ * writing of affine transformation into XML.
  
  ## Limitations
  At the moment, all h5 chunk sizes have the same size 

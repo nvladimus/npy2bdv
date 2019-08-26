@@ -110,14 +110,17 @@ class BdvWriter:
             stack_sub = skimage.transform.downscale_local_mean(stack, tuple(subsamp_level)).astype(np.uint16)
         return stack_sub
 
-    def write_xml_file(self, ntimes=1, units='px', dx=1, dy=1, dz=1):
+    def write_xml_file(self, ntimes=1, units='px', dx=1, dy=1, dz=1,
+                       m_affine=None, name_affine="Manually defined (Rigid/Affine by matrix)"):
         """
         Write XML header file for the HDF5 file.
 
         Parameters:
-            ntimes, int, number of time points
-            units, string, can be anything. Default is 'px'.
-            dx, dy, dz, float, pixel size in 'units'.
+            ntimes: int, number of time points
+            units: string, can be anything. Default is 'px'.
+            dx, dy, dz: float, pixel size in 'units'.
+            m_affine: a (3,4) numpy array with coefficients of affine transformation (m00, m01m ...)
+            name_affine: string, the name of affine transformation
         """
         assert ntimes >= 1, "Total number of time points must be at least 1."
         nz, ny, nx = tuple(self.stack_shape)
@@ -189,13 +192,24 @@ class BdvWriter:
         ET.SubElement(tpoints, 'first').text = str(0)
         ET.SubElement(tpoints, 'last').text = str(ntimes - 1)
 
-        # Transformations of coordinate system, including calibration
+        # Transformations of coordinate system
         vregs = ET.SubElement(root, 'ViewRegistrations')
+
         for itime in range(ntimes):
             for iset in range(self.nsetups):
                 vreg = ET.SubElement(vregs, 'ViewRegistration')
                 vreg.set('timepoint', str(itime))
                 vreg.set('setup', str(iset))
+                # write arbitrary affine transformation
+                if m_affine is not None:
+                    vt = ET.SubElement(vreg, 'ViewTransform')
+                    vt.set('type', 'affine')
+                    ET.SubElement(vt, 'Name').text = name_affine
+                    mx_string = np.array2string(m_affine.flatten(), separator=' ',
+                                                precision=6, floatmode='fixed', max_line_width=150)
+                    ET.SubElement(vt, 'affine').text = mx_string[2:-1]
+
+                # write registration transformation (calibration)
                 vt = ET.SubElement(vreg, 'ViewTransform')
                 vt.set('type', 'affine')
                 ET.SubElement(vt, 'Name').text = 'calibration'
