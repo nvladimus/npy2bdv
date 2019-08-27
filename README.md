@@ -31,13 +31,14 @@
   
  Writing is finalized by calling `.close()`.
  
- See `examples.py` for details.
+ See [`examples.py`](examples.py) for details.
  
  ## Supported options
  * compression methods 'gzip', 'lzf' (no compression by default)
  * down-sampling for any number of mipmap levels (no down-sampling by default)
  * any number of time points, illuminations, channels, tiles, angles.
- * writing of affine transformation into XML.
+ * writing of arbitrary affine transformation into XML.
+ * writing of camera's `exposureTime` into XML (new property).
  
  ## Limitations
  At the moment, all h5 chunk sizes have the same size 
@@ -50,6 +51,5 @@ Writing speeds up to 1200 MB/s can be achieved on a PC with SSD drive.
 The amount of available RAM does not seem to play role: 
 writing on laptop with 16 GB RAM can be faster than on 64 GB RAM mainframe machine.
 
-The speed of h5 writing using this library is typically about 700-900 MB/s 
-(uncomressed data, no downsampling). This is in the range of full-speed camera acquisition 
+The speed of writing for long time series (>100 stacks) is typically about 700-900 MB/s. This is in the range of full-speed camera acquisition 
 of Hamamatsu Orca Flash4, 840 MB/s (2048x2048 px at 100 Hz).

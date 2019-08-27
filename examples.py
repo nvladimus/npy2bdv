@@ -48,4 +48,12 @@ affine_matrix = np.array(((1.0, 0.0, shear_x_px, 0.0),
                           (0.0, 0.0, 1.0, 0.0)))
 bdv_writer.write_xml_file(ntimes=1, m_affine=affine_matrix)
 bdv_writer.close()
-print("sheared data written into " + fname + "\n")
+print("Sheared data written into " + fname + "\n")
+
+print("Example4: writing 1 time point and 1 channel exposure time")
+fname = "./timepts1_channels1_exposure.h5"
+bdv_writer = npy2bdv.BdvWriter(fname, nchannels=1, subsamp=((1, 1, 1),))
+bdv_writer.append_view(rand_stack, time=0, channel=0)
+bdv_writer.write_xml_file(ntimes=1, exposure_time=10, exposure_units='ms')
+bdv_writer.close()
+print("Stack with exposure time written into " + fname + "\n")

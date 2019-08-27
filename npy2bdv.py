@@ -111,16 +111,27 @@ class BdvWriter:
         return stack_sub
 
     def write_xml_file(self, ntimes=1, units='px', dx=1, dy=1, dz=1,
-                       m_affine=None, name_affine="Manually defined (Rigid/Affine by matrix)"):
+                       m_affine=None, name_affine="Manually defined (Rigid/Affine by matrix)",
+                       exposure_time=None, exposure_units="s"):
         """
         Write XML header file for the HDF5 file.
 
         Parameters:
-            ntimes: int, number of time points
-            units: string, can be anything. Default is 'px'.
-            dx, dy, dz: float, pixel size in 'units'.
-            m_affine: a (3,4) numpy array with coefficients of affine transformation (m00, m01m ...)
-            name_affine: string, the name of affine transformation
+            ntimes: int
+                number of time points
+            units: str, optional
+                spatial units (default is 'px').
+            dx, dy, dz: scalars, optional
+                voxel dimensions in 'units'.
+            m_affine: a (3,4) numpy array, optional
+                Coefficients of affine transformation matrix (m00, m01m ...)
+            name_affine: str, optional
+                Name of affine transformation
+            exposure_time: scalar, optional
+                Camera exposure time
+            exposure_units: str, optional
+                Time units, default "s".
+
         """
         assert ntimes >= 1, "Total number of time points must be at least 1."
         nz, ny, nx = tuple(self.stack_shape)
@@ -151,6 +162,11 @@ class BdvWriter:
                         vox = ET.SubElement(vs, 'voxelSize')
                         ET.SubElement(vox, 'unit').text = units
                         ET.SubElement(vox, 'size').text = '{} {} {}'.format(dx, dy, dz)
+                        if exposure_time is not None:
+                            exp = ET.SubElement(vs, 'exposureTime')
+                            ET.SubElement(exp, 'unit').text = exposure_units
+                            ET.SubElement(exp, 'duration').text = '{}'.format(exposure_time)
+
                         a = ET.SubElement(vs, 'attributes')
                         ET.SubElement(a, 'illumination').text = str(iillumination)
                         ET.SubElement(a, 'channel').text = str(ichannel)
