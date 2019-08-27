@@ -205,8 +205,10 @@ class BdvWriter:
                     vt = ET.SubElement(vreg, 'ViewTransform')
                     vt.set('type', 'affine')
                     ET.SubElement(vt, 'Name').text = name_affine
+                    n_prec = 6
                     mx_string = np.array2string(m_affine.flatten(), separator=' ',
-                                                precision=6, floatmode='fixed', max_line_width=150)
+                                                precision=n_prec, floatmode='fixed',
+                                                max_line_width=(n_prec+5)*4)
                     ET.SubElement(vt, 'affine').text = mx_string[2:-1]
 
                 # write registration transformation (calibration)
