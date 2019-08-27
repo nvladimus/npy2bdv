@@ -8,21 +8,21 @@
  Python 3.6.
  
  ## Installation
- Copy `npy2bdv.py` in your code folder and use `import npy2bdv`.
+ Copy [`npy2bdv.py`](npy2bdv.py) into your code folder and use `import npy2bdv`.
  
  ## Data input
  Any 3-dimensional numpy arrays in (z,y,x) axis order, 
  data type `uint16`.
  
  ## Pipeline
- When a writer object is created, it opens a new h5 file  
- and requires info about setups and saving: 
+ When a writer object is created, it opens a new h5 file 
+ and requires info about setups and saving options: 
  number of setup attributes (e.g. channels, angles), compression and subsampling (if any). 
  File name must be new to avoid accidental data loss due to file re-writing.
  
  The image stacks (3d numpy arrays) are appended to h5 file 
  as new views by `.append_view()`. 
- Time point `time` and attributes (e.g `channel`, `angle`) must be specified 
+ Time point `time` and attributes (e.g. `channel`, `angle`) must be specified 
  for each view.
  
  The XML file is created at the end by calling `.write_xml_file()`.
@@ -34,10 +34,10 @@
  See [`examples.py`](examples.py) for details.
  
  ## Supported options
- * compression methods 'gzip', 'lzf' (no compression by default)
+ * compression methods `gzip`, `lzf` (no compression by default)
  * down-sampling for any number of mipmap levels (no down-sampling by default)
  * any number of time points, illuminations, channels, tiles, angles.
- * writing of arbitrary affine transformation into XML.
+ * writing of arbitrary affine transformation into XML (e.g. translation, rotation, skewing).
  * writing of camera's `exposureTime` into XML (new property).
  
  ## Limitations
