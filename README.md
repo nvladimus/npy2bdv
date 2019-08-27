@@ -37,7 +37,8 @@
  * compression methods `gzip`, `lzf` (no compression by default)
  * down-sampling for any number of mipmap levels (no down-sampling by default)
  * any number of time points, illuminations, channels, tiles, angles.
- * writing of arbitrary affine transformation into XML (e.g. translation, rotation, skewing).
+ * writing of arbitrary affine transformation into XML 
+ (e.g. translation, rotation, shear).
  * writing of camera's `exposureTime` into XML (new property).
  
  ## Limitations
