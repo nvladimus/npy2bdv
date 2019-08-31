@@ -34,23 +34,28 @@
  See [`examples.py`](examples.py) for details.
  
  ## Supported options
- * compression methods `gzip`, `lzf` (no compression by default)
- * down-sampling for any number of mipmap levels (no down-sampling by default)
+ * compression methods `None`, `gzip`, `lzf` (`None` by default).
+ * downsampling possible for any number of mipmap levels (no downsampling by default). 
+ Downsampling is done by averaging, compatible with BigDataViewer/BigStitcher convention.
+ * block sizes for H5 storage (default `4,256,256`)
  * any number of time points, illuminations, channels, tiles, angles.
  * writing of arbitrary affine transformation into XML 
  (e.g. translation, rotation, shear).
- * writing of camera's `exposureTime` into XML (new property).
+ * writing of camera properties into XML (new):
+    * `name`
+    * `exposureTime`
+    * `exposureUnits`
+ * writing of `generatedBy` meta-information into XML (new):
+    * `microscope` (name and version),
+    * `user`.
  
- ## Limitations
- At the moment, all h5 chunk sizes have the same size 
- (4, 256, 256) for any mipmap level. 
- This makes h5 writing fast, but may be non-optimal for reading 
- or minimizing file size.
+ ## ToDo
+ Add automatic calculation of missing views IDs into XML file.
  
  ## Writing speed
-Writing speeds up to 1200 MB/s can be achieved on a PC with SSD drive. 
+Writing speeds up to 1300 MB/s can be achieved on a PC with SSD drive. 
 The amount of available RAM does not seem to play role: 
-writing on laptop with 16 GB RAM can be faster than on 64 GB RAM mainframe machine.
+writing on laptop with 16 GB RAM can be faster than on 64 GB RAM mainframe machine, if laptop SSD is faster.
 
 The speed of writing for long time series (>100 stacks) is typically about 700-900 MB/s. This is in the range of full-speed camera acquisition 
 of Hamamatsu Orca Flash4, 840 MB/s (2048x2048 px at 100 Hz).

@@ -10,28 +10,30 @@ import skimage.transform
 
 
 class BdvWriter:
-    def __init__(self, filename, subsamp=((1, 1, 1),), compression=None,
+    def __init__(self, filename,
+                 subsamp=((1, 1, 1),),
+                 blockdim=((4, 256, 256),),
+                 compression=None,
                  nilluminations=1, nchannels=1, ntiles=1, nangles=1):
         """Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.
 
         Parameters:
             filename: (string) full path to a new file
-            subsamp: (tuple of tuples) subsampling levels in z,y,x order. Integers >= 1, default value ((1, 1, 1),)
-            compression: (None, 'gzip', 'lzf'), HDF5 compression method. Default is None, for high-speed writing.
-            nilluminations, nchannels, ntiles, nangles: (int) number of view attributes, default 1.
+            subsamp: (tuple of tuples),
+                Subsampling levels in (z,y,x) order. Integers >= 1, default value ((1, 1, 1),)
+            blockdim: (tuple of tuples),
+                Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),), see notes.
+            compression: str
+                (None, 'gzip', 'lzf'), HDF5 compression method. Default is None for high-speed writing.
+            nilluminations, nchannels, ntiles, nangles, (int)
+                number of view attributes, default 1.
 
-        Notes: input stacks and output files are assumed uint16 type.
+        Notes:
+        Input stacks and output files are assumed uint16 type.
 
-        Example: 2 time points, 2 channels.
-            fname = "./fish_timeser40_chan2_classtest6.h5"
-            bdv_writer = BdvWriter(fname, nchannels = 2, subsamp=((1,1,1),))
-            stack = np.random.randint(0,100,size=(41,1024,2048),dtype='int16')
-            bdv_writer.append_view(stack, time=0, channel=0)
-            bdv_writer.append_view(stack, time=0, channel=1)
-            bdv_writer.append_view(stack, time=1, channel=0)
-            bdv_writer.append_view(stack, time=1, channel=1)
-            bdv_writer.write_xml_file(ntimes=2)
-            bdv_writer.close()
+        The h5 recommended block (chunk) size should be between 10 KB and 1 MB, larger for large arrays.
+        For example, block dimensions (4,256,256)px gives ~0.5MB block size for type int16 (2 bytes) and writes very fast.
+        Block size can be larger than stack dimension.
         """
         assert nilluminations >= 1, "Total number of illuminations must be at least 1."
         assert nchannels >= 1, "Total number of channels must be at least 1."
@@ -41,6 +43,10 @@ class BdvWriter:
         assert not os.path.exists(filename), "File already exists, writing terminated"
         assert all([isinstance(element, int) for tupl in subsamp for element in
                     tupl]), 'subsamp values should be integers >= 1.'
+        if len(blockdim) < len(subsamp):
+            print("Number of blockdim levels (" + str (len(blockdim)) +
+                  ") is less than subsamp levels (" + str(len(subsamp)) + ")\n" +
+                  "First-level block size " + str(blockdim[0]) + " will be used for all levels\n")
 
         self.nsetups = nilluminations * nchannels * ntiles * nangles
         self.nilluminations = nilluminations
@@ -48,12 +54,13 @@ class BdvWriter:
         self.ntiles = ntiles
         self.nangles = nangles
         self.subsamp = np.asarray(subsamp)
-        self.chunks = self.compute_chunk_size(self.subsamp)
+        self.chunks = self.compute_chunk_size(blockdim)
         self.stack_shape = None
         self.compression = compression
         self.filename = filename
         self.file_object = h5py.File(filename, 'a')
         self.write_setups_header()
+        self.__version__ = "2019.08.31"
 
     def write_setups_header(self):
         """Write resolutions and subdivisions for all setups into h5 file."""
@@ -82,18 +89,18 @@ class BdvWriter:
             grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
                                maxshape=(None, None, None), compression=self.compression)
 
-    def compute_chunk_size(self, subsamp):
-        """Compute optimal size of h5 chunks for fast reading and writing.
-
-        Notes: For now, chunk sizes are the same for all levels. The h5 recommended chunk size should be between 10 KB and 1 MB, larger for large arrays.
-        For example, chunk dimensions (4,256,256)px gives ~0.5MB chunk size for type int16 (2 bytes) and writes very fast.
-        Chunk size can be larger than stack dimension.
+    def compute_chunk_size(self, blockdim):
+        """Populate the size of h5 chunks.
+        Use first-level chunk size if there are more subsampling levels than chunk size levels.
         """
         chunks = []
-        base_levels = (4, 256, 256)
-        for ilevel in range(len(subsamp)):
-            chunks.append(base_levels)
-        chunks_tuple = tuple(chunks)
+        base_level = blockdim[0]
+        if len(blockdim) < len(self.subsamp):
+            for ilevel in range(len(self.subsamp)):
+                chunks.append(base_level)
+            chunks_tuple = tuple(chunks)
+        else:
+            chunks_tuple = blockdim
         return chunks_tuple
 
     def subsample_stack(self, stack, subsamp_level):
@@ -112,7 +119,8 @@ class BdvWriter:
 
     def write_xml_file(self, ntimes=1, units='px', dx=1, dy=1, dz=1,
                        m_affine=None, name_affine="Manually defined (Rigid/Affine by matrix)",
-                       exposure_time=None, exposure_units="s"):
+                       camera_name="default", exposure_time=None, exposure_units="s",
+                       microscope_name="default", microscope_version="0.0", user_name="default"):
         """
         Write XML header file for the HDF5 file.
 
@@ -127,10 +135,15 @@ class BdvWriter:
                 Coefficients of affine transformation matrix (m00, m01m ...)
             name_affine: str, optional
                 Name of affine transformation
+            camera_name: str, optional
+                Name of the camera (same for all setups at the moment, ToDo)
             exposure_time: scalar, optional
-                Camera exposure time
+                Camera exposure time (same for all setups at the moment, ToDo)
             exposure_units: str, optional
                 Time units, default "s".
+            microscope_name: str, optional
+            microscope_version: str, optional
+            user_name: str, optional
 
         """
         assert ntimes >= 1, "Total number of time points must be at least 1."
@@ -140,6 +153,16 @@ class BdvWriter:
         bp = ET.SubElement(root, 'BasePath')
         bp.set('type', 'relative')
         bp.text = '.'
+        # new XML data, added by @nvladimus
+        generator = ET.SubElement(root, 'generatedBy')
+        library = ET.SubElement(generator, 'library')
+        library.set('version', self.__version__)
+        library.text = "npy2bdv"
+        microscope = ET.SubElement(generator, 'microscope')
+        ET.SubElement(microscope, 'name').text = microscope_name
+        ET.SubElement(microscope, 'version').text = microscope_version
+        ET.SubElement(microscope, 'user').text = user_name
+        # end of new XML data
 
         seqdesc = ET.SubElement(root, 'SequenceDescription')
         imgload = ET.SubElement(seqdesc, 'ImageLoader')
@@ -147,9 +170,8 @@ class BdvWriter:
         el = ET.SubElement(imgload, 'hdf5')
         el.set('type', 'relative')
         el.text = os.path.basename(self.filename)
-        viewsets = ET.SubElement(seqdesc, 'ViewSetups')
-
         # write ViewSetups
+        viewsets = ET.SubElement(seqdesc, 'ViewSetups')
         for iillumination in range(self.nilluminations):
             for ichannel in range(self.nchannels):
                 for itile in range(self.ntiles):
@@ -162,11 +184,12 @@ class BdvWriter:
                         vox = ET.SubElement(vs, 'voxelSize')
                         ET.SubElement(vox, 'unit').text = units
                         ET.SubElement(vox, 'size').text = '{} {} {}'.format(dx, dy, dz)
-                        if exposure_time is not None:
-                            exp = ET.SubElement(vs, 'exposureTime')
-                            ET.SubElement(exp, 'unit').text = exposure_units
-                            ET.SubElement(exp, 'duration').text = '{}'.format(exposure_time)
-
+                        # new XML data, added by @nvladimus
+                        cam = ET.SubElement(vs, 'camera')
+                        ET.SubElement(cam, 'name').text = camera_name
+                        ET.SubElement(cam, 'exposureTime').text = '{}'.format(exposure_time)
+                        ET.SubElement(cam, 'exposureUnits').text = exposure_units
+                        # end of new XML data
                         a = ET.SubElement(vs, 'attributes')
                         ET.SubElement(a, 'illumination').text = str(iillumination)
                         ET.SubElement(a, 'channel').text = str(ichannel)
