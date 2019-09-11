@@ -250,7 +250,7 @@ class BdvWriter:
                     mx_string = np.array2string(m_affine.flatten(), separator=' ',
                                                 precision=n_prec, floatmode='fixed',
                                                 max_line_width=(n_prec+5)*4)
-                    ET.SubElement(vt, 'affine').text = mx_string[1:-1]
+                    ET.SubElement(vt, 'affine').text = mx_string[1:-1].strip()
 
                 # write registration transformation (calibration)
                 vt = ET.SubElement(vreg, 'ViewTransform')
