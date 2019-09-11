@@ -133,8 +133,10 @@ class BdvWriter:
                 voxel dimensions in 'units'.
             m_affine: a (3,4) numpy array, optional
                 Coefficients of affine transformation matrix (m00, m01m ...)
+                (same for all setups at the moment, ToDo)
             name_affine: str, optional
                 Name of affine transformation
+                (same for all setups at the moment, ToDo)
             camera_name: str, optional
                 Name of the camera (same for all setups at the moment, ToDo)
             exposure_time: scalar, optional
@@ -248,13 +250,13 @@ class BdvWriter:
                     mx_string = np.array2string(m_affine.flatten(), separator=' ',
                                                 precision=n_prec, floatmode='fixed',
                                                 max_line_width=(n_prec+5)*4)
-                    ET.SubElement(vt, 'affine').text = mx_string[2:-1]
+                    ET.SubElement(vt, 'affine').text = mx_string[1:-1]
 
                 # write registration transformation (calibration)
                 vt = ET.SubElement(vreg, 'ViewTransform')
                 vt.set('type', 'affine')
                 ET.SubElement(vt, 'Name').text = 'calibration'
-                ET.SubElement(vt, 'affine').text = '{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0'.format(dx, dy, dz)
+                ET.SubElement(vt, 'affine').text = '{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0'.format(1, 1, 1)
 
         self.xml_indent(root)
         tree = ET.ElementTree(root)
