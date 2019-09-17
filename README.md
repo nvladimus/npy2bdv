@@ -39,8 +39,10 @@
  Downsampling is done by averaging, compatible with BigDataViewer/BigStitcher convention.
  * block sizes for H5 storage (default `4,256,256`)
  * any number of time points, illuminations, channels, tiles, angles.
- * writing of arbitrary affine transformation into XML 
- (e.g. translation, rotation, shear).
+ * arbitrary affine transformation for each individual view (e.g. translation, rotation, shear).
+ * arbitrary voxel calibration for each view, to account for spatial anisotropy.
+ * individual views can differ in dimensions, voxel size, voxel units, 
+ exposure time, and exposure units.
  * writing of camera properties into XML (new):
     * `name`
     * `exposureTime`

@@ -5,6 +5,7 @@ __pycache__/
 .idea/
 *.xml
 *.h5
+*.zip
 # C extensions
 *.so
 

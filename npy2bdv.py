@@ -55,12 +55,19 @@ class BdvWriter:
         self.nangles = nangles
         self.subsamp = np.asarray(subsamp)
         self.chunks = self.compute_chunk_size(blockdim)
-        self.stack_shape = None
+        self.stack_shapes = {}
+        self.affine_matrices = {}
+        self.affine_names = {}
+        self.calibrations = {}
+        self.voxel_size_xyz = {}
+        self.voxel_units = {}
+        self.exposure_time = {}
+        self.exposure_units = {}
         self.compression = compression
         self.filename = filename
         self.file_object = h5py.File(filename, 'a')
         self.write_setups_header()
-        self.__version__ = "2019.08.31"
+        self.__version__ = "2019.09.17"
 
     def write_setups_header(self):
         """Write resolutions and subdivisions for all setups into h5 file."""
@@ -71,23 +78,54 @@ class BdvWriter:
             grp.create_dataset('resolutions', data=data_subsamp, dtype='<f8')
             grp.create_dataset('subdivisions', data=data_chunks, dtype='<i4')
 
-    def append_view(self, stack, time, illumination=0, channel=0, tile=0, angle=0):
+    def append_view(self, stack, time, illumination=0, channel=0, tile=0, angle=0,
+                    m_affine=None, name_affine='manually defined',
+                    voxel_size_xyz=(1, 1, 1), voxel_units='px', calibration=(1, 1, 1),
+                    exposure_time=0, exposure_units='s'):
         """Write numpy 3-dimensional array (stack) to h5 file at specified timepint (itime) and setup number (isetup).
         Parameters:
-            stack: 3d numpy array in (z,y,x) order, type 'uint16'.
-            time: (int) time index, starting from 0.
-            illumination, channel, view, angle: (int) view attributes, starting from 0.
+            stack: numpy array (uint16)
+                3-dimensional stack of data in (z,y,x) axis order.
+            time: (int)
+                time index, starting from 0.
+            illumination, channel, view, angle: (int)
+                indices of the view attributes, starting from 0.
+            m_affine: a (3,4) numpy array, optional
+                Coefficients of affine transformation matrix (m00, m01m ...)
+            name_affine: str, optional
+                Name of affine transformation
+            voxel_size_xyz: tuple of 3 elements, optional
+                The physical size of voxel, in voxel_units. Default (1, 1, 1).
+            voxel_units: str, optional
+                spatial units (default is 'px').
+            calibration: tuple of 3 elements, optional
+                The anisotropy factors for (x,y,z) voxel calibration. Default (1, 1, 1).
+                Leave it default unless you are expert in BigStitcher and know how it affects transformations.
+            exposure_time: scalar, optional
+                Camera exposure time for this view, default 0.
+            exposure_units: str, optional
+                Time units for this view, default "s".
         """
         assert len(stack.shape) == 3, "Stack should be a 3-dimensional numpy array (z,y,x)"
-        self.stack_shape = stack.shape
+        assert len(calibration) == 3, "Calibration must be a tuple of 3 elements (x, y, z)."
+        assert len(voxel_size_xyz) == 3, "Voxel size must be a tuple of 3 elements (x, y, z)."
         fmt = 't{:05d}/s{:02d}/{}'
         nlevels = len(self.subsamp)
         isetup = self.determine_setup_id(illumination, channel, tile, angle)
+        self.stack_shapes[isetup] = stack.shape
         for ilevel in range(nlevels):
             grp = self.file_object.create_group(fmt.format(time, isetup, ilevel))
             subdata = self.subsample_stack(stack, self.subsamp[ilevel])
             grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
                                maxshape=(None, None, None), compression=self.compression)
+        if m_affine is not None:
+            self.affine_matrices[isetup] = m_affine
+            self.affine_names[isetup] = name_affine
+        self.calibrations[isetup] = calibration
+        self.voxel_size_xyz[isetup] = voxel_size_xyz
+        self.voxel_units[isetup] = voxel_units
+        self.exposure_time[isetup] = exposure_time
+        self.exposure_units[isetup] = exposure_units
 
     def compute_chunk_size(self, blockdim):
         """Populate the size of h5 chunks.
@@ -117,39 +155,22 @@ class BdvWriter:
             stack_sub = skimage.transform.downscale_local_mean(stack, tuple(subsamp_level)).astype(np.uint16)
         return stack_sub
 
-    def write_xml_file(self, ntimes=1, units='px', dx=1, dy=1, dz=1,
-                       m_affine=None, name_affine="Manually defined (Rigid/Affine by matrix)",
-                       camera_name="default", exposure_time=None, exposure_units="s",
-                       microscope_name="default", microscope_version="0.0", user_name="default"):
+    def write_xml_file(self, ntimes=1,
+                       camera_name="default",  microscope_name="default",
+                       microscope_version="0.0", user_name="user"):
         """
         Write XML header file for the HDF5 file.
 
         Parameters:
             ntimes: int
                 number of time points
-            units: str, optional
-                spatial units (default is 'px').
-            dx, dy, dz: scalars, optional
-                voxel dimensions in 'units'.
-            m_affine: a (3,4) numpy array, optional
-                Coefficients of affine transformation matrix (m00, m01m ...)
-                (same for all setups at the moment, ToDo)
-            name_affine: str, optional
-                Name of affine transformation
-                (same for all setups at the moment, ToDo)
             camera_name: str, optional
                 Name of the camera (same for all setups at the moment, ToDo)
-            exposure_time: scalar, optional
-                Camera exposure time (same for all setups at the moment, ToDo)
-            exposure_units: str, optional
-                Time units, default "s".
             microscope_name: str, optional
             microscope_version: str, optional
             user_name: str, optional
-
         """
         assert ntimes >= 1, "Total number of time points must be at least 1."
-        nz, ny, nx = tuple(self.stack_shape)
         root = ET.Element('SpimData')
         root.set('version', '0.2')
         bp = ET.SubElement(root, 'BasePath')
@@ -182,15 +203,17 @@ class BdvWriter:
                         vs = ET.SubElement(viewsets, 'ViewSetup')
                         ET.SubElement(vs, 'id').text = str(isetup)
                         ET.SubElement(vs, 'name').text = 'setup ' + str(isetup)
+                        nz, ny, nx = tuple(self.stack_shapes[isetup])
                         ET.SubElement(vs, 'size').text = '{} {} {}'.format(nx, ny, nz)
                         vox = ET.SubElement(vs, 'voxelSize')
-                        ET.SubElement(vox, 'unit').text = units
+                        ET.SubElement(vox, 'unit').text = self.voxel_units[isetup]
+                        dx, dy, dz = self.voxel_size_xyz[isetup]
                         ET.SubElement(vox, 'size').text = '{} {} {}'.format(dx, dy, dz)
                         # new XML data, added by @nvladimus
                         cam = ET.SubElement(vs, 'camera')
                         ET.SubElement(cam, 'name').text = camera_name
-                        ET.SubElement(cam, 'exposureTime').text = '{}'.format(exposure_time)
-                        ET.SubElement(cam, 'exposureUnits').text = exposure_units
+                        ET.SubElement(cam, 'exposureTime').text = '{}'.format(self.exposure_time[isetup])
+                        ET.SubElement(cam, 'exposureUnits').text = self.exposure_units[isetup]
                         # end of new XML data
                         a = ET.SubElement(vs, 'attributes')
                         ET.SubElement(a, 'illumination').text = str(iillumination)
@@ -241,13 +264,13 @@ class BdvWriter:
                 vreg = ET.SubElement(vregs, 'ViewRegistration')
                 vreg.set('timepoint', str(itime))
                 vreg.set('setup', str(iset))
-                # write arbitrary affine transformation
-                if m_affine is not None:
+                # write arbitrary affine transformation, specific for each view
+                if iset in self.affine_matrices.keys():
                     vt = ET.SubElement(vreg, 'ViewTransform')
                     vt.set('type', 'affine')
-                    ET.SubElement(vt, 'Name').text = name_affine
+                    ET.SubElement(vt, 'Name').text = self.affine_names[iset]
                     n_prec = 6
-                    mx_string = np.array2string(m_affine.flatten(), separator=' ',
+                    mx_string = np.array2string(self.affine_matrices[iset].flatten(), separator=' ',
                                                 precision=n_prec, floatmode='fixed',
                                                 max_line_width=(n_prec+5)*4)
                     ET.SubElement(vt, 'affine').text = mx_string[1:-1].strip()
@@ -256,7 +279,9 @@ class BdvWriter:
                 vt = ET.SubElement(vreg, 'ViewTransform')
                 vt.set('type', 'affine')
                 ET.SubElement(vt, 'Name').text = 'calibration'
-                ET.SubElement(vt, 'affine').text = '{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0'.format(1, 1, 1)
+                calx, caly, calz = self.calibrations[iset]
+                ET.SubElement(vt, 'affine').text = \
+                    '{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0'.format(calx, caly, calz)
 
         self.xml_indent(root)
         tree = ET.ElementTree(root)
