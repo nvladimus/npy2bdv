@@ -115,7 +115,7 @@ class BdvWriter:
         self.stack_shapes[isetup] = stack.shape
         for ilevel in range(nlevels):
             grp = self.file_object.create_group(fmt.format(time, isetup, ilevel))
-            subdata = self.subsample_stack(stack, self.subsamp[ilevel])
+            subdata = self.subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
             grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
                                maxshape=(None, None, None), compression=self.compression)
         if m_affine is not None:
