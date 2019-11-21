@@ -1,7 +1,6 @@
 # Fast writing of numpy arrays to HDF5 format compatible with Fiji/BigDataViewer and BigStitcher
-# Inspired by https://github.com/tlambert03/imarispy and Adam Glaser code
 # Author: Nikita Vladimirov
-# MIT license
+# License: GPL-3.0
 import os
 import h5py
 import numpy as np
@@ -54,6 +53,7 @@ class BdvWriter:
         self.ntiles = ntiles
         self.nangles = nangles
         self.subsamp = np.asarray(subsamp)
+        self.nlevels = len(subsamp)
         self.chunks = self.compute_chunk_size(blockdim)
         self.stack_shapes = {}
         self.affine_matrices = {}
@@ -67,7 +67,8 @@ class BdvWriter:
         self.filename = filename
         self.file_object = h5py.File(filename, 'a')
         self.write_setups_header()
-        self.__version__ = "2019.09.17"
+        self.virtual_stacks = False
+        self.__version__ = "2019.11.20"
 
     def write_setups_header(self):
         """Write resolutions and subdivisions for all setups into h5 file."""
@@ -78,14 +79,43 @@ class BdvWriter:
             grp.create_dataset('resolutions', data=data_subsamp, dtype='<f8')
             grp.create_dataset('subdivisions', data=data_chunks, dtype='<i4')
 
-    def append_view(self, stack, time, illumination=0, channel=0, tile=0, angle=0,
+    def append_plane(self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0):
+        """Append a plane to initialized virtual stack. Requires stack initialization by calling e.g.
+        append_view(stack=None, virtual_stack_dim=(1000,2048,2048)).
+        Parameters:
+            plane: numpy array(uint16)
+                A 2d array of (y,x) pixel values.
+            plane_index: (int)
+                Plane z-position in the virtual stack.
+            time: (int)
+                time index, starting from 0.
+            illumination, channel, view, angle: (int)
+                indices of the view attributes, starting from 0.
+        """
+        assert self.virtual_stacks, "Appending planes requires initialization with virtual stack, " \
+                                    "see append_view(stack=None,...)"
+        isetup = self.determine_setup_id(illumination, channel, tile, angle)
+        assert plane.shape == self.stack_shapes[isetup][1:], "Plane dimensions must match (y,x) size of virtual stack."
+        assert plane_index < self.stack_shapes[isetup][0], "Plane index must be less than virtual stack z-dimension."
+        assert self.nlevels ==1, "No subsampling currently implemented for virtual stack writing."
+        fmt = 't{:05d}/s{:02d}/{}'
+        for ilevel in range(self.nlevels):
+            group_name = fmt.format(time, isetup, ilevel)
+            dataset = self.file_object[group_name]["cells"]
+            dataset[plane_index, :, :] = plane.astype('int16')
+
+    def append_view(self, stack, virtual_stack_dim=None,
+                    time=0, illumination=0, channel=0, tile=0, angle=0,
                     m_affine=None, name_affine='manually defined',
                     voxel_size_xyz=(1, 1, 1), voxel_units='px', calibration=(1, 1, 1),
                     exposure_time=0, exposure_units='s'):
         """Write numpy 3-dimensional array (stack) to h5 file at specified timepint (itime) and setup number (isetup).
         Parameters:
-            stack: numpy array (uint16)
-                3-dimensional stack of data in (z,y,x) axis order.
+            stack: numpy array (uint16) or None
+                A 3-dimensional stack of uint16 data in (z,y,x) axis order.
+                If None, creates an empty dataset of size huge_stack_dim.
+            virtual_stack_dim: None or tuple of (z,y,x) dimensions, optional
+                Dimensions to allocate a huge stack and fill it later by individual planes.
             time: (int)
                 time index, starting from 0.
             illumination, channel, view, angle: (int)
@@ -105,19 +135,30 @@ class BdvWriter:
                 Camera exposure time for this view, default 0.
             exposure_units: str, optional
                 Time units for this view, default "s".
+
         """
-        assert len(stack.shape) == 3, "Stack should be a 3-dimensional numpy array (z,y,x)"
         assert len(calibration) == 3, "Calibration must be a tuple of 3 elements (x, y, z)."
         assert len(voxel_size_xyz) == 3, "Voxel size must be a tuple of 3 elements (x, y, z)."
         fmt = 't{:05d}/s{:02d}/{}'
-        nlevels = len(self.subsamp)
         isetup = self.determine_setup_id(illumination, channel, tile, angle)
-        self.stack_shapes[isetup] = stack.shape
-        for ilevel in range(nlevels):
+        if stack is not None:
+            assert len(stack.shape) == 3, "Stack should be a 3-dimensional numpy array (z,y,x)"
+            self.stack_shapes[isetup] = stack.shape
+        else:
+            assert len(virtual_stack_dim) == 3, "Stack is virtual, so parameter virtual_stack_dim must be defined."
+            self.stack_shapes[isetup] = virtual_stack_dim
+            self.virtual_stacks = True
+
+        for ilevel in range(self.nlevels):
             grp = self.file_object.create_group(fmt.format(time, isetup, ilevel))
-            subdata = self.subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
-            grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
-                               maxshape=(None, None, None), compression=self.compression)
+            if stack is not None:
+                subdata = self.subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
+                grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
+                                   maxshape=(None, None, None), compression=self.compression, dtype='int16')
+            else: # huge virtual stack initialized
+                assert self.nlevels == 1, "No subsampling currently implemented for virtual stacks."
+                grp.create_dataset('cells', chunks=self.chunks[ilevel],
+                                   shape=virtual_stack_dim, compression=self.compression, dtype='int16')
         if m_affine is not None:
             self.affine_matrices[isetup] = m_affine
             self.affine_names[isetup] = name_affine
