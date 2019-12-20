@@ -8,7 +8,7 @@
  Python 3.6.
  
  ## Installation
- Copy [`npy2bdv.py`](npy2bdv.py) into your code folder and use `import npy2bdv`.
+ Run `pip install` to install package and use `import npy2bdv` to use it in your code.
  
  ## Data input
  Any 3d numpy arrays in (z,y,x) axis order as `stack`, or 2d array (y,x) as `plane`. 
@@ -72,4 +72,4 @@ of Hamamatsu Orca Flash4, 840 MB/s (2048x2048 px at 100 Hz).
  This code was inspired by [Talley Lambert's](https://github.com/tlambert03/imarispy) code 
  and further input from Adam Glaser, [VolkerH](https://github.com/VolkerH) and Doug Shepherd.
  
- To report issues or bugs please use the [issues](https://github.com/nvladimus/npy2bdv/issues) tool. 
+ To report issues or bugs please use the [issues](https://github.com/nvladimus/npy2bdv/issues) tool.
