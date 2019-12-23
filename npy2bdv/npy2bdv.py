@@ -54,7 +54,7 @@ class BdvWriter:
         self.nangles = nangles
         self.subsamp = np.asarray(subsamp)
         self.nlevels = len(subsamp)
-        self.chunks = self.compute_chunk_size(blockdim)
+        self.chunks = self.__compute_chunk_size(blockdim)
         self.stack_shapes = {}
         self.affine_matrices = {}
         self.affine_names = {}
@@ -66,11 +66,11 @@ class BdvWriter:
         self.compression = compression
         self.filename = filename
         self.file_object = h5py.File(filename, 'a')
-        self.write_setups_header()
+        self.__write_setups_header()
         self.virtual_stacks = False
-        self.__version__ = "2019.11.20"
+        self.__version__ = "2019.12.23"
 
-    def write_setups_header(self):
+    def __write_setups_header(self):
         """Write resolutions and subdivisions for all setups into h5 file."""
         for isetup in range(self.nsetups):
             grp = self.file_object.create_group('s{:02d}'.format(isetup))
@@ -94,7 +94,7 @@ class BdvWriter:
         """
         assert self.virtual_stacks, "Appending planes requires initialization with virtual stack, " \
                                     "see append_view(stack=None,...)"
-        isetup = self.determine_setup_id(illumination, channel, tile, angle)
+        isetup = self.__determine_setup_id(illumination, channel, tile, angle)
         assert plane.shape == self.stack_shapes[isetup][1:], "Plane dimensions must match (y,x) size of virtual stack."
         assert plane_index < self.stack_shapes[isetup][0], "Plane index must be less than virtual stack z-dimension."
         assert self.nlevels ==1, "No subsampling currently implemented for virtual stack writing."
@@ -140,7 +140,7 @@ class BdvWriter:
         assert len(calibration) == 3, "Calibration must be a tuple of 3 elements (x, y, z)."
         assert len(voxel_size_xyz) == 3, "Voxel size must be a tuple of 3 elements (x, y, z)."
         fmt = 't{:05d}/s{:02d}/{}'
-        isetup = self.determine_setup_id(illumination, channel, tile, angle)
+        isetup = self.__determine_setup_id(illumination, channel, tile, angle)
         if stack is not None:
             assert len(stack.shape) == 3, "Stack should be a 3-dimensional numpy array (z,y,x)"
             self.stack_shapes[isetup] = stack.shape
@@ -152,7 +152,7 @@ class BdvWriter:
         for ilevel in range(self.nlevels):
             grp = self.file_object.create_group(fmt.format(time, isetup, ilevel))
             if stack is not None:
-                subdata = self.subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
+                subdata = self.__subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
                 grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
                                    maxshape=(None, None, None), compression=self.compression, dtype='int16')
             else: # huge virtual stack initialized
@@ -168,7 +168,7 @@ class BdvWriter:
         self.exposure_time[isetup] = exposure_time
         self.exposure_units[isetup] = exposure_units
 
-    def compute_chunk_size(self, blockdim):
+    def __compute_chunk_size(self, blockdim):
         """Populate the size of h5 chunks.
         Use first-level chunk size if there are more subsampling levels than chunk size levels.
         """
@@ -182,7 +182,7 @@ class BdvWriter:
             chunks_tuple = blockdim
         return chunks_tuple
 
-    def subsample_stack(self, stack, subsamp_level):
+    def __subsample_stack(self, stack, subsamp_level):
         """Subsampling of 3d stack.
         Parameters:
             stack, numpy 3d array (z,y,x) of int16
@@ -240,7 +240,7 @@ class BdvWriter:
             for ichannel in range(self.nchannels):
                 for itile in range(self.ntiles):
                     for iangle in range(self.nangles):
-                        isetup = self.determine_setup_id(iillumination, ichannel, itile, iangle)
+                        isetup = self.__determine_setup_id(iillumination, ichannel, itile, iangle)
                         vs = ET.SubElement(viewsets, 'ViewSetup')
                         ET.SubElement(vs, 'id').text = str(isetup)
                         ET.SubElement(vs, 'name').text = 'setup ' + str(isetup)
@@ -324,12 +324,12 @@ class BdvWriter:
                 ET.SubElement(vt, 'affine').text = \
                     '{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0'.format(calx, caly, calz)
 
-        self.xml_indent(root)
+        self.__xml_indent(root)
         tree = ET.ElementTree(root)
         tree.write(os.path.splitext(self.filename)[0] + ".xml", xml_declaration=True, encoding='utf-8', method="xml")
         return
 
-    def xml_indent(self, elem, level=0):
+    def __xml_indent(self, elem, level=0):
         """Pretty printing function"""
         i = "\n" + level * "  "
         if len(elem):
@@ -338,14 +338,14 @@ class BdvWriter:
             if not elem.tail or not elem.tail.strip():
                 elem.tail = i
             for elem in elem:
-                self.xml_indent(elem, level + 1)
+                self.__xml_indent(elem, level + 1)
             if not elem.tail or not elem.tail.strip():
                 elem.tail = i
         else:
             if level and (not elem.tail or not elem.tail.strip()):
                 elem.tail = i
 
-    def determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
+    def __determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
         """Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
         Parameters:
             illumination (int) >=0
@@ -363,4 +363,3 @@ class BdvWriter:
     def close(self):
         """Close the file object."""
         self.file_object.close()
-
