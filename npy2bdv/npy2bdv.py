@@ -363,3 +363,45 @@ class BdvWriter:
     def close(self):
         """Close the file object."""
         self.file_object.close()
+
+
+class BdvReader:
+    def __init__(self, filename_h5=None):
+        """Class for reading a BigDataViewer/BigStitcher HDF5 file into numpy array.
+
+        Constructor parameters
+            filename_h5: (string), optional, full path to a HDF5 file (default None).
+        """
+        self.__version__ = "2020.01.07"
+        self.__fmt = 't{:05d}/s{:02d}/{}'
+        self.filename_h5 = filename_h5
+        if filename_h5 is not None:
+            assert os.path.exists(filename_h5), "Error: HDF5 file not found"
+            self.__file_object = h5py.File(filename_h5, 'r')
+        else:
+            self.__file_object = None
+
+    def set_path_h5(self, filename_h5):
+        """Set the file path to HDF5 file. If another file was already open, it closes it before proceeding"""
+        assert os.path.exists(filename_h5), "Error: HDF5 file not found"
+        if self.__file_object is not None:
+            self.__file_object.close()
+        self.__file_object = h5py.File(filename_h5, 'r')
+
+    def read_view(self, time=0, isetup=0, ilevel=0):
+        """Read a view (stack) specified by its time, setup ID, and downsampling level.
+
+        Parameters
+            time: (int) index of time point (default 0).
+            isetup: (int), index of setup ID (default 0)
+            ilevel: (int), level of subsampling, if available (default 0, no subsampling)
+
+        Returns
+            dataset: a numpy array (ndim=3)"""
+        group_name = self.__fmt.format(time, isetup, ilevel)
+        dataset = self.__file_object[group_name]["cells"]
+        return dataset
+
+    def close(self):
+        """Close the file object."""
+        self.__file_object.close()

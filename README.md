@@ -1,6 +1,6 @@
 # npy2bdv
  A minimalistic package for writing image stacks (numpy 3d-arrays) into HDF5 files in 
- Fiji BigDataViewer/BigStitcher format.
+ Fiji BigDataViewer/BigStitcher format. Also supports basic reading from HDF5 into numpy arrays.
  
  Default options are optimized for high-speed writing, 
  to save microscopy images on the fly at full camera speed.
@@ -37,7 +37,7 @@
  
  See [`examples.py`](examples.py) for details.
  
- ## Supported options
+ ## Supported writing options
  * compression methods `None`, `gzip`, `lzf` (`None` by default).
  * downsampling possible for any number of mipmap levels (no downsampling by default). 
  Downsampling is done by averaging, compatible with BigDataViewer/BigStitcher convention.
@@ -56,8 +56,13 @@
     * `user`.
  * writing virtual stacks of arbitrary size plane-by-plane. Handy when your stack is larger than your RAM.
  
- ## ToDo
- Adding automatic calculation of missing views IDs into XML file, or tile positions.. Maybe.
+ ## Recent changes
+ Added basic reading from H5 into numpy array: 
+ ```
+ bdv_reader = npy2bdv.BdvReader('file.h5') 
+ stack = bdv_reader.read_view(time=0, isetup=0, ilevel=0)
+ bdv_reader.close()
+ ```
  
  ## Writing speed
 Writing speeds up to 2300 MB/s can be achieved on a PC with SSD drive. 
