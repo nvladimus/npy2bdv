@@ -3,11 +3,13 @@ __pycache__/
 *.py[cod]
 *$py.class
 .idea/
-*.xml
+*.xml*
 *.h5
 *.zip
 # C extensions
 *.so
+
+npy2bdv/ignore/
 
 # Distribution / packaging
 .packaging.py

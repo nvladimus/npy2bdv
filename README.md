@@ -10,19 +10,18 @@
  ## Installation
  Run `pip install` to install package and use `import npy2bdv` to use it in your code.
  
- ## Data input
+ ## Input
  Any 3d numpy arrays in (z,y,x) axis order as `stack`, or 2d array (y,x) as `plane`. 
- The array type is converted to `uint16` inside npy2bdv.
+ The array type is converted to `uint16` automatically.
  
  ## Pipeline
  When a writer object is created, it opens a new h5 file 
  and requires info about setups and saving options: 
  number of setup attributes (e.g. channels, angles), compression and subsampling (if any). 
- File name must be new to avoid accidental data loss due to file re-writing.
  
- The image stacks (3d numpy arrays) are appended to h5 file 
- as new views by `.append_view(stack, ...)`. 
- Time point `time` and attributes (e.g. `channel`, `angle`) must be specified 
+ The image stacks (3d) are appended to h5 file 
+ as views by `.append_view(stack, ...)`. 
+ Time point `time` and attributes such as `channel`, `angle` etc must be specified 
  for each view.
  
  Stacks that are too huge to fit RAM can be written plane by plane using `.append_plane()` method. 
@@ -47,22 +46,14 @@
  * arbitrary voxel calibration for each view, to account for spatial anisotropy.
  * individual views can differ in dimensions, voxel size, voxel units, 
  exposure time, and exposure units.
- * writing of camera properties into XML (new):
-    * `name`
-    * `exposureTime`
-    * `exposureUnits`
- * writing of `generatedBy` meta-information into XML (new):
-    * `microscope` (name and version),
-    * `user`.
+ * missing views are labeled automatically.
+ * support of camera properties: `name`, `exposureTime`, `exposureUnits`
+ * support of `generatedBy` meta-information: `microscope` (name and version), `user`.
  * writing virtual stacks of arbitrary size plane-by-plane. Handy when your stack is larger than your RAM.
  
  ## Recent changes
- Added basic reading from H5 into numpy array: 
- ```
- bdv_reader = npy2bdv.BdvReader('file.h5') 
- stack = bdv_reader.read_view(time=0, isetup=0, ilevel=0)
- bdv_reader.close()
- ```
+ * Missing views handling.
+ * Basic reader from H5 into numpy array: `npy2bdv.BdvReader('file.h5') `
  
  ## Writing speed
 Writing speeds up to 2300 MB/s can be achieved on a PC with SSD drive. 
