@@ -1,5 +1,6 @@
 import time
 import sys
+import os
 import numpy as np
 import npy2bdv
 
@@ -22,6 +23,8 @@ for z in range(50):
     stack.append(plane)
 stack = np.asarray(stack)
 
+if not os.path.exists("./test"):
+    os.mkdir("./test")
 fname = "./test/ex1_t2_ch2.h5"
 bdv_writer = npy2bdv.BdvWriter(fname, nchannels=2, subsamp=((1, 1, 1),))
 bdv_writer.append_view(stack, time=0, channel=0)

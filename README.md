@@ -8,7 +8,7 @@
  Python 3.6.
  
  ## Installation
- Run `pip install` to install package and use `import npy2bdv` to use it in your code.
+ Run `pip install` from Anaconda prompt, and insert `import npy2bdv` in your code.
  
  ## Input
  Any 3d numpy arrays in (z,y,x) axis order as `stack`, or 2d array (y,x) as `plane`. 
@@ -34,7 +34,7 @@
   
  Writing is finalized by calling `.close()`.
  
- See [`examples.py`](examples.py) for details.
+ See [`examples.py`](/npy2bdv/examples.py) for details.
  
  ## Supported writing options
  * compression methods `None`, `gzip`, `lzf` (`None` by default).
@@ -48,12 +48,12 @@
  exposure time, and exposure units.
  * missing views are labeled automatically.
  * support of camera properties: `name`, `exposureTime`, `exposureUnits`
- * support of `generatedBy` meta-information: `microscope` (name and version), `user`.
+ * support of `generatedBy` meta-information: `microscope` (name and version), `user`
  * writing virtual stacks of arbitrary size plane-by-plane. Handy when your stack is larger than your RAM.
  
  ## Recent changes
  * Missing views handling.
- * Basic reader from H5 into numpy array: `npy2bdv.BdvReader('file.h5') `
+ * Basic reader into numpy: `npy2bdv.BdvReader('file.h5') `
  
  ## Writing speed
 Writing speeds up to 2300 MB/s can be achieved on a PC with SSD drive. 
