@@ -44,7 +44,7 @@ class BdvWriter:
         if len(blockdim) < len(subsamp):
             print("Number of blockdim levels (" + str (len(blockdim)) +
                   ") is less than subsamp levels (" + str(len(subsamp)) + ")\n" +
-                  "First-level block size " + str(blockdim[0]) + " will be used for all levels\n")
+                  "First-level block size " + str(blockdim[0]) + " will be used for all levels")
 
         self.nsetups = nilluminations * nchannels * ntiles * nangles
         self.nilluminations = nilluminations
