@@ -16,7 +16,7 @@ def generate_test_image(dim_yx):
 ######################
 ## 1. Basic writing ##
 ######################
-print("Example1: writing 2 time points and 2 channels")
+print("Example1: writing 2 time points, 2 channels, 2 illuminations")
 plane = generate_test_image((1024, 2048))
 stack = []
 for z in range(50):
@@ -25,12 +25,13 @@ stack = np.asarray(stack)
 
 if not os.path.exists("./test"):
     os.mkdir("./test")
-fname = "./test/ex1_t2_ch2.h5"
-bdv_writer = npy2bdv.BdvWriter(fname, nchannels=2, subsamp=((1, 1, 1),))
-bdv_writer.append_view(stack, time=0, channel=0)
-bdv_writer.append_view(stack, time=0, channel=1)
-bdv_writer.append_view(stack, time=1, channel=0)
-bdv_writer.append_view(stack, time=1, channel=1)
+fname = "./test/ex1_t2_ch2_illum2.h5"
+bdv_writer = npy2bdv.BdvWriter(fname, nchannels=2, nilluminations=2, subsamp=((1, 1, 1),))
+for t in range(2):
+    for i_ch in range(2):
+        for i_illum in range(2):
+            bdv_writer.append_view(stack, time=t, channel=i_ch, illumination=i_illum)
+
 bdv_writer.write_xml_file(ntimes=2)
 bdv_writer.close()
 print("dataset in " + fname)
