@@ -68,7 +68,7 @@ class BdvWriter:
         self._write_setups_header()
         self.virtual_stacks = False
         self.setup_id_present = [[False] * self.nsetups]
-        self.__version__ = "2020.03.13"
+        self.__version__ = "2020.03"
 
     def _write_setups_header(self):
         """Write resolutions and subdivisions for all setups into h5 file."""
@@ -249,26 +249,27 @@ class BdvWriter:
                 for itile in range(self.ntiles):
                     for iangle in range(self.nangles):
                         isetup = self._determine_setup_id(iillumination, ichannel, itile, iangle)
-                        vs = ET.SubElement(viewsets, 'ViewSetup')
-                        ET.SubElement(vs, 'id').text = str(isetup)
-                        ET.SubElement(vs, 'name').text = 'setup ' + str(isetup)
-                        nz, ny, nx = tuple(self.stack_shapes[isetup])
-                        ET.SubElement(vs, 'size').text = '{} {} {}'.format(nx, ny, nz)
-                        vox = ET.SubElement(vs, 'voxelSize')
-                        ET.SubElement(vox, 'unit').text = self.voxel_units[isetup]
-                        dx, dy, dz = self.voxel_size_xyz[isetup]
-                        ET.SubElement(vox, 'size').text = '{} {} {}'.format(dx, dy, dz)
-                        # new XML data, added by @nvladimus
-                        cam = ET.SubElement(vs, 'camera')
-                        ET.SubElement(cam, 'name').text = camera_name
-                        ET.SubElement(cam, 'exposureTime').text = '{}'.format(self.exposure_time[isetup])
-                        ET.SubElement(cam, 'exposureUnits').text = self.exposure_units[isetup]
-                        # end of new XML data
-                        a = ET.SubElement(vs, 'attributes')
-                        ET.SubElement(a, 'illumination').text = str(iillumination)
-                        ET.SubElement(a, 'channel').text = str(ichannel)
-                        ET.SubElement(a, 'tile').text = str(itile)
-                        ET.SubElement(a, 'angle').text = str(iangle)
+                        if any([self.setup_id_present[t][isetup] for t in range(len(self.setup_id_present))]):
+                            vs = ET.SubElement(viewsets, 'ViewSetup')
+                            ET.SubElement(vs, 'id').text = str(isetup)
+                            ET.SubElement(vs, 'name').text = 'setup ' + str(isetup)
+                            nz, ny, nx = tuple(self.stack_shapes[isetup])
+                            ET.SubElement(vs, 'size').text = '{} {} {}'.format(nx, ny, nz)
+                            vox = ET.SubElement(vs, 'voxelSize')
+                            ET.SubElement(vox, 'unit').text = self.voxel_units[isetup]
+                            dx, dy, dz = self.voxel_size_xyz[isetup]
+                            ET.SubElement(vox, 'size').text = '{} {} {}'.format(dx, dy, dz)
+                            # new XML data, added by @nvladimus
+                            cam = ET.SubElement(vs, 'camera')
+                            ET.SubElement(cam, 'name').text = camera_name
+                            ET.SubElement(cam, 'exposureTime').text = '{}'.format(self.exposure_time[isetup])
+                            ET.SubElement(cam, 'exposureUnits').text = self.exposure_units[isetup]
+                            # end of new XML data
+                            a = ET.SubElement(vs, 'attributes')
+                            ET.SubElement(a, 'illumination').text = str(iillumination)
+                            ET.SubElement(a, 'channel').text = str(ichannel)
+                            ET.SubElement(a, 'tile').text = str(itile)
+                            ET.SubElement(a, 'angle').text = str(iangle)
 
         # write Attributes (range of values)
         attrs_illum = ET.SubElement(viewsets, 'Attributes')
@@ -318,28 +319,29 @@ class BdvWriter:
         # Transformations of coordinate system
         vregs = ET.SubElement(root, 'ViewRegistrations')
         for itime in range(ntimes):
-            for iset in range(self.nsetups):
-                vreg = ET.SubElement(vregs, 'ViewRegistration')
-                vreg.set('timepoint', str(itime))
-                vreg.set('setup', str(iset))
-                # write arbitrary affine transformation, specific for each view
-                if iset in self.affine_matrices.keys():
+            for isetup in range(self.nsetups):
+                if self.setup_id_present[itime][isetup]:
+                    vreg = ET.SubElement(vregs, 'ViewRegistration')
+                    vreg.set('timepoint', str(itime))
+                    vreg.set('setup', str(isetup))
+                    # write arbitrary affine transformation, specific for each view
+                    if isetup in self.affine_matrices.keys():
+                        vt = ET.SubElement(vreg, 'ViewTransform')
+                        vt.set('type', 'affine')
+                        ET.SubElement(vt, 'Name').text = self.affine_names[isetup]
+                        n_prec = 6
+                        mx_string = np.array2string(self.affine_matrices[isetup].flatten(), separator=' ',
+                                                    precision=n_prec, floatmode='fixed',
+                                                    max_line_width=(n_prec+5)*4)
+                        ET.SubElement(vt, 'affine').text = mx_string[1:-1].strip()
+
+                    # write registration transformation (calibration)
                     vt = ET.SubElement(vreg, 'ViewTransform')
                     vt.set('type', 'affine')
-                    ET.SubElement(vt, 'Name').text = self.affine_names[iset]
-                    n_prec = 6
-                    mx_string = np.array2string(self.affine_matrices[iset].flatten(), separator=' ',
-                                                precision=n_prec, floatmode='fixed',
-                                                max_line_width=(n_prec+5)*4)
-                    ET.SubElement(vt, 'affine').text = mx_string[1:-1].strip()
-
-                # write registration transformation (calibration)
-                vt = ET.SubElement(vreg, 'ViewTransform')
-                vt.set('type', 'affine')
-                ET.SubElement(vt, 'Name').text = 'calibration'
-                calx, caly, calz = self.calibrations[iset]
-                ET.SubElement(vt, 'affine').text = \
-                    '{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0'.format(calx, caly, calz)
+                    ET.SubElement(vt, 'Name').text = 'calibration'
+                    calx, caly, calz = self.calibrations[isetup]
+                    ET.SubElement(vt, 'affine').text = \
+                        '{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0'.format(calx, caly, calz)
 
         self._xml_indent(root)
         tree = ET.ElementTree(root)

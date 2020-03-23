@@ -16,7 +16,7 @@ def generate_test_image(dim_yx):
 ######################
 ## 1. Basic writing ##
 ######################
-print("Example1: writing 2 time points, 2 channels, 2 illuminations")
+print("Example1: writing 2 time points, 2 channels, 2 illuminations, 2 angles")
 plane = generate_test_image((1024, 2048))
 stack = []
 for z in range(50):
@@ -25,12 +25,13 @@ stack = np.asarray(stack)
 
 if not os.path.exists("./test"):
     os.mkdir("./test")
-fname = "./test/ex1_t2_ch2_illum2.h5"
-bdv_writer = npy2bdv.BdvWriter(fname, nchannels=2, nilluminations=2, subsamp=((1, 1, 1),))
+fname = "./test/ex1_t2_ch2_illum2_angle2.h5"
+bdv_writer = npy2bdv.BdvWriter(fname, nchannels=2, nilluminations=2, nangles=2, subsamp=((1, 1, 1),))
 for t in range(2):
     for i_ch in range(2):
         for i_illum in range(2):
-            bdv_writer.append_view(stack, time=t, channel=i_ch, illumination=i_illum)
+            for i_angle in range(2):
+                bdv_writer.append_view(stack, time=t, channel=i_ch, illumination=i_illum, angle=i_angle)
 
 bdv_writer.write_xml_file(ntimes=2)
 bdv_writer.close()
@@ -114,8 +115,8 @@ print("dataset is in " + fname)
 ##########################################################
 # 6. Writing virtual stacks that are too big to fit RAM ##
 ##########################################################
-print("Example6: 1 time point, 2 channels, huge virtual stack, 80 GB!")
-stack_dim_zyx = (1000, 3648, 5472)
+print("Example6: 1 time point, 2 channels, HUGE virtual stack, 20 GB!")
+stack_dim_zyx = (250, 3648, 5472)
 image_plane = generate_test_image(stack_dim_zyx[1:])
 fname = "./test/ex6_t1_ch1_huge_virtual.h5"
 bdv_writer = npy2bdv.BdvWriter(fname, nchannels=2,
@@ -130,14 +131,33 @@ bdv_writer.write_xml_file(ntimes=1)
 bdv_writer.close()
 print("virtual stack is in " + fname)
 
-######################
-## 7. Missing views ##
-######################
+############################################
+## 7. Missing views, normal stack writing ##
+############################################
 print("Example7: Automatic calculation of missing views.")
 fname = "./test/ex7_missing_views.h5"
 bdv_writer = npy2bdv.BdvWriter(fname, nchannels=2, subsamp=((1, 1, 1),))
 bdv_writer.append_view(stack, time=0, channel=0)
 bdv_writer.append_view(stack, time=1, channel=1)
+bdv_writer.write_xml_file(ntimes=2)
+bdv_writer.close()
+print("dataset with missing views in " + fname)
+
+#####################################
+## 8. Missing views, virtual stack ##
+#####################################
+print("Example8: Automatic calculation of missing views, virtual stack.")
+stack_dim_zyx = (50, 1000, 2000)
+image_plane = generate_test_image(stack_dim_zyx[1:])
+fname = "./test/ex8_virtual_stack_missing_views.h5"
+bdv_writer = npy2bdv.BdvWriter(fname, nchannels=2, subsamp=((1, 1, 1),))
+bdv_writer.append_view(stack=None, virtual_stack_dim=stack_dim_zyx, time=0, channel=0)
+bdv_writer.append_view(stack=None, virtual_stack_dim=stack_dim_zyx, time=1, channel=1)
+
+for i_plane in range(stack_dim_zyx[0]):
+    bdv_writer.append_plane(plane=image_plane, plane_index=i_plane, time=0, channel=0)
+    bdv_writer.append_plane(plane=image_plane, plane_index=i_plane, time=1, channel=1)
+
 bdv_writer.write_xml_file(ntimes=2)
 bdv_writer.close()
 print("dataset with missing views in " + fname)
