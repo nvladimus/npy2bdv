@@ -9,6 +9,8 @@ import skimage.transform
 
 
 class BdvWriter:
+    __version__ = "2020.06"
+
     def __init__(self, filename,
                  subsamp=((1, 1, 1),),
                  blockdim=((4, 256, 256),),
@@ -45,7 +47,7 @@ class BdvWriter:
             print("Number of blockdim levels (" + str (len(blockdim)) +
                   ") is less than subsamp levels (" + str(len(subsamp)) + ")\n" +
                   "First-level block size " + str(blockdim[0]) + " will be used for all levels")
-
+        self._fmt = 't{:05d}/s{:02d}/{}'
         self.nsetups = nilluminations * nchannels * ntiles * nangles
         self.nilluminations = nilluminations
         self.nchannels = nchannels
@@ -68,7 +70,6 @@ class BdvWriter:
         self._write_setups_header()
         self.virtual_stacks = False
         self.setup_id_present = [[False] * self.nsetups]
-        self.__version__ = "2020.03"
 
     def _write_setups_header(self):
         """Write resolutions and subdivisions for all setups into h5 file."""
@@ -102,9 +103,8 @@ class BdvWriter:
         assert plane.shape == self.stack_shapes[isetup][1:], "Plane dimensions must match (y,x) size of virtual stack."
         assert plane_index < self.stack_shapes[isetup][0], "Plane index must be less than virtual stack z-dimension."
         assert self.nlevels == 1, "No subsampling currently implemented for virtual stack writing."
-        fmt = 't{:05d}/s{:02d}/{}'
         for ilevel in range(self.nlevels):
-            group_name = fmt.format(time, isetup, ilevel)
+            group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self.file_object[group_name]["cells"]
             dataset[plane_index, :, :] = plane.astype('int16')
 
@@ -143,7 +143,6 @@ class BdvWriter:
         """
         assert len(calibration) == 3, "Calibration must be a tuple of 3 elements (x, y, z)."
         assert len(voxel_size_xyz) == 3, "Voxel size must be a tuple of 3 elements (x, y, z)."
-        fmt = 't{:05d}/s{:02d}/{}'
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         self.update_setup_id_present(isetup, time)
         if stack is not None:
@@ -155,7 +154,7 @@ class BdvWriter:
             self.virtual_stacks = True
 
         for ilevel in range(self.nlevels):
-            group_name = fmt.format(time, isetup, ilevel)
+            group_name = self._fmt.format(time, isetup, ilevel)
             if group_name in self.file_object:
                 del self.file_object[group_name]
             grp = self.file_object.create_group(group_name)
@@ -391,30 +390,27 @@ class BdvWriter:
 
 
 class BdvReader:
-    def __init__(self, filename_h5=None):
+    __version__ = "2020.06.25"
+
+    def __init__(self, filename_h5):
         """Class for reading a BigDataViewer/BigStitcher HDF5 file into numpy array.
 
         Constructor parameters
             filename_h5: (string), optional, full path to a HDF5 file (default None).
         """
-        self.__version__ = "2020.01.07"
-        self.__fmt = 't{:05d}/s{:02d}/{}'
-        self.filename_h5 = filename_h5
-        if filename_h5 is not None:
-            assert os.path.exists(filename_h5), "Error: HDF5 file not found"
-            self.__file_object = h5py.File(filename_h5, 'r')
-        else:
-            self.__file_object = None
+        self._fmt = 't{:05d}/s{:02d}/{}'
+        assert os.path.exists(filename_h5), "Error: HDF5 file not found"
+        self._file_object = h5py.File(filename_h5, 'r')
 
     def set_path_h5(self, filename_h5):
         """Set the file path to HDF5 file. If another file was already open, it closes it before proceeding"""
         assert os.path.exists(filename_h5), "Error: HDF5 file not found"
-        if self.__file_object is not None:
-            self.__file_object.close()
-        self.__file_object = h5py.File(filename_h5, 'r')
+        if self._file_object:
+            self._file_object.close()
+        self._file_object = h5py.File(filename_h5, 'r')
 
     def read_view(self, time=0, isetup=0, ilevel=0):
-        """Read a view (stack) specified by its time, setup ID, and downsampling level.
+        """Read a view (stack) specified by its time, setup ID, and downsampling level into numpy array (uint16).
 
         Parameters
             time: (int) index of time point (default 0).
@@ -422,11 +418,14 @@ class BdvReader:
             ilevel: (int), level of subsampling, if available (default 0, no subsampling)
 
         Returns
-            dataset: a numpy array (ndim=3)"""
-        group_name = self.__fmt.format(time, isetup, ilevel)
-        dataset = self.__file_object[group_name]["cells"]
-        return dataset
+            dataset: a numpy array (dim=3, dtype=uint16)"""
+        group_name = self._fmt.format(time, isetup, ilevel)
+        if self._file_object:
+            dataset = self._file_object[group_name]["cells"].value.astype('uint16')
+            return dataset
+        else:
+            raise ValueError('File object is None')
 
     def close(self):
         """Close the file object."""
-        self.__file_object.close()
+        self._file_object.close()
