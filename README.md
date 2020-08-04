@@ -1,5 +1,5 @@
 # npy2bdv
- A minimalistic package for writing image stacks (numpy 3d-arrays) into HDF5 files in 
+ A minimalistic library for writing image stacks (numpy 3d-arrays) into HDF5 files in 
  Fiji BigDataViewer/BigStitcher format. Also supports basic reading from HDF5 into numpy arrays.
  
  Default options are optimized for high-speed writing, 
@@ -70,3 +70,8 @@ of Hamamatsu Orca Flash4, 840 MB/s (2048x2048 px at 100 Hz).
  [Peter H](https://github.com/abred).
  
  To report issues or bugs please use the [issues](https://github.com/nvladimus/npy2bdv/issues) tool.
+ 
+ ## Citation
+ If you find this library useful, please cite it. Thanks!
+ 
+ [![DOI](https://zenodo.org/badge/203410946.svg)](https://zenodo.org/badge/latestdoi/203410946)
