@@ -1,8 +1,8 @@
 import npy2bdv
 import os
 
-examples_dir = "./examples/"
-assert os.path.exists(examples_dir), 'Please run the examples first to generate the datasets.'
+examples_dir = "./example_files/"
+assert os.path.exists(examples_dir), 'Please run the Example 1 to generate the dataset.'
 
 
 def check_range():
@@ -12,8 +12,8 @@ def check_range():
     reader = npy2bdv.BdvReader(fname)
     view0 = reader.read_view(time=0, isetup=0)
     print(f"Array min, max, mean: {view0.min()}, {view0.max()}, {int(view0.mean())}")
-    assert view0.min() > 0, "Min() value incorrect: {view0.min()}"
-    assert view0.max() < 65535, "Max() value incorrect: {view0.max()}"
+    assert view0.min() >= 0, "Min() value incorrect: {view0.min()}"
+    assert view0.max() <= 65535, "Max() value incorrect: {view0.max()}"
     reader.close()
 
 check_range()
