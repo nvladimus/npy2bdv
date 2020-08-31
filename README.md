@@ -15,26 +15,21 @@
  The array type is converted to `uint16` automatically.
  
  ## Pipeline
- When a writer object is created, it opens a new h5 file 
- and requires info about setups and saving options: 
- number of setup attributes (e.g. channels, angles), compression and subsampling (if any). 
- 
- The image stacks (3d) are appended to h5 file 
- as views by `.append_view(stack, ...)`. 
- Time point `time` and attributes such as `channel`, `angle` etc must be specified 
+ 1. a writer object is created: it opens a new h5 file and requires info about setups and saving options: 
+ number of setup attributes (e.g. channels, angles), compression, subsampling. 
+ 2. stacks (3d arrays) can be appended to the h5 file 
+ as views by `BdvWriter.append_view(stack, ...)`. 
+ Stacks can be normal (whole stack appended at once), or virtual, appended plane by plane.
+ The time point `time` and attributes such as `channel`, `angle` etc must be specified 
  for each view.
  
- Stacks that are too huge to fit RAM can be written plane by plane using `.append_plane()` method. 
- Before calling this method, virtual stack must be initialized with 
- `.append_view(stack=None, virtual_stack_dim=stack_dim,...)` method, see Example6.
- 
- The XML file is created in the end by calling `.write_xml_file(ntimes, ...)`.
- The total number of time points `ntimes` must be specified at this step. 
- So, it may be unknown in the beginning of acquisition.
+ 3. an XML file with all meta information is created in the end by `BdvWriter.write_xml_file(ntimes, ...)`.
+ The total number of time points `ntimes` must be specified at this step 
+ (it may be unknown in the beginning of acquisition).
   
- Writing is finalized by calling `.close()`.
+ 4. Writing is finalized by calling `BdvWriter.close()`.
  
- See [`examples.py`](/npy2bdv/examples.py) for details.
+ See [`notebook with examples`](/npy2bdv/examples.ipynb) for details.
  
  ## Supported writing options
  * compression methods `None`, `gzip`, `lzf` (`None` by default).
@@ -51,9 +46,8 @@
  * support of `generatedBy` meta-information: `microscope` (name and version), `user`
  * writing virtual stacks of arbitrary size plane-by-plane. Handy when your stack is larger than your RAM.
  
- ## Recent changes
- * Missing views handling.
- * Basic reader into numpy: `npy2bdv.BdvReader('file.h5') `
+ ## Recent changes (Aug. 2020)
+ * virtual stacks can be written with multiple subsampling levels and compression.
  
  ## Writing speed
 Writing speeds up to 2300 MB/s can be achieved on a PC with SSD drive. 

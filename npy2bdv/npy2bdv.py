@@ -9,7 +9,7 @@ import skimage.transform
 
 
 class BdvWriter:
-    __version__ = "2020.06"
+    __version__ = "2020.08"
 
     def __init__(self, filename,
                  subsamp=((1, 1, 1),),
@@ -21,7 +21,7 @@ class BdvWriter:
         Parameters:
             filename: (string) full path to a new file
             subsamp: (tuple of tuples),
-                Subsampling levels in (z,y,x) order. Integers >= 1, default value ((1, 1, 1),)
+                Subsampling levels in (z,y,x) order. Integers >= 1, default value ((1, 1, 1),) for no subsampling.
             blockdim: (tuple of tuples),
                 Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),), see notes.
             compression: str
@@ -44,9 +44,8 @@ class BdvWriter:
         assert all([isinstance(element, int) for tupl in subsamp for element in
                     tupl]), 'subsamp values should be integers >= 1.'
         if len(blockdim) < len(subsamp):
-            print("Number of blockdim levels (" + str (len(blockdim)) +
-                  ") is less than subsamp levels (" + str(len(subsamp)) + ")\n" +
-                  "First-level block size " + str(blockdim[0]) + " will be used for all levels")
+            print(f"INFO: blockdim levels ({len(blockdim)}) < subsamp levels ({len(subsamp)}):"
+                  f" First-level block size {blockdim[0]} will be used for all levels")
         self._fmt = 't{:05d}/s{:02d}/{}'
         self.nsetups = nilluminations * nchannels * ntiles * nangles
         self.nilluminations = nilluminations
@@ -84,7 +83,7 @@ class BdvWriter:
             grp.create_dataset('subdivisions', data=data_chunks, dtype='<i4')
 
     def append_plane(self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0):
-        """Append a plane to initialized virtual stack. Requires stack initialization by calling e.g.
+        """Append a plane to a virtual stack. Requires stack initialization by calling e.g.
         append_view(stack=None, virtual_stack_dim=(1000,2048,2048)).
         Parameters:
             plane: numpy array(uint16)
@@ -102,11 +101,10 @@ class BdvWriter:
         self.update_setup_id_present(isetup, time)
         assert plane.shape == self.stack_shapes[isetup][1:], "Plane dimensions must match (y,x) size of virtual stack."
         assert plane_index < self.stack_shapes[isetup][0], "Plane index must be less than virtual stack z-dimension."
-        assert self.nlevels == 1, "No subsampling currently implemented for virtual stack writing."
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self.file_object[group_name]["cells"]
-            dataset[plane_index, :, :] = plane.astype('int16')
+            dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype('int16')
 
     def append_view(self, stack, virtual_stack_dim=None,
                     time=0, illumination=0, channel=0, tile=0, angle=0,
@@ -162,10 +160,12 @@ class BdvWriter:
                 subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
                 grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
                                    maxshape=(None, None, None), compression=self.compression, dtype='int16')
-            else:  # a huge virtual stack can be initialized
-                assert self.nlevels == 1, "No subsampling currently implemented for virtual stacks."
+            else:  # a large virtual stack initialized
+                assert self.subsamp[ilevel][0] == 1, "Virtual stacks must have z-subsampling == 1," \
+                                                     " eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16))."
                 grp.create_dataset('cells', chunks=self.chunks[ilevel],
-                                   shape=virtual_stack_dim, compression=self.compression, dtype='int16')
+                                   shape=virtual_stack_dim // self.subsamp[ilevel],
+                                   compression=self.compression, dtype='int16')
         if m_affine is not None:
             self.affine_matrices[isetup] = m_affine
             self.affine_names[isetup] = name_affine
@@ -202,6 +202,21 @@ class BdvWriter:
         else:
             stack_sub = skimage.transform.downscale_local_mean(stack, tuple(subsamp_level)).astype(np.uint16)
         return stack_sub
+
+    def _subsample_plane(self, plane, subsamp_level):
+        """Subsampling of a 2d plane.
+        Parameters:
+            plane, numpy 2d array (y,x) of int16
+            subsamp_level, array-like with 3 elements, eg (1,4,4) for downsampling x and y (x4).
+        Return:
+            down-scaled plane, unit16 type.
+        """
+        assert subsamp_level[0] == 1, "z-subsampling must be == 1 for virtual stacks."
+        if all(subsamp_level[:] == 1):
+            plane_sub = plane
+        else:
+            plane_sub = skimage.transform.downscale_local_mean(plane, tuple(subsamp_level[1:])).astype(np.uint16)
+        return plane_sub
 
     def write_xml_file(self, ntimes=1,
                        camera_name="default",  microscope_name="default",
