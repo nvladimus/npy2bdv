@@ -1,6 +1,6 @@
 # npy2bdv
- A minimalistic library for writing image stacks (numpy 3d-arrays) into HDF5 files in 
- Fiji BigDataViewer/BigStitcher format. Also supports basic reading from HDF5 into numpy arrays.
+ A minimalistic library for writing image stacks (numpy arrays) into HDF5 files of 
+ Fiji BigDataViewer/BigStitcher format (readable by Imaris as well). The library also supports reading from HDF5 into numpy.
  
  Default options are optimized for high-speed writing, 
  to save microscopy images on the fly at full camera speed.
