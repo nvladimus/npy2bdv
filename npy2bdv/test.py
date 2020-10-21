@@ -16,6 +16,9 @@ def generate_test_image(dim_yx, iz, nz):
 
 
 class TestRange(unittest.TestCase):
+    """Generate a dataset with multiples views, and read it back.
+    Test if the range of `uint16` is correctly written and read
+    """
     def setUp(self) -> None:
         self.test_dir = "./test_files/"
         self.fname = self.test_dir + "test_ex1_t2_ch2_illum2_angle2.h5"
@@ -37,7 +40,7 @@ class TestRange(unittest.TestCase):
         bdv_writer.close()
 
     def test_range_uint16(self):
-        """"Check if the reader imports full uint16 range correctly"""
+        """Check if the reader imports full uint16 range correctly"""
         assert os.path.exists(self.fname), f'File {self.fname} not found.'
         reader = npy2bdv.BdvReader(self.fname)
         for t in range(2):
