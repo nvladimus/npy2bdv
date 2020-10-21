@@ -8,6 +8,6 @@ python:
   version: 3.6
   install:
     - requirements: docs/requirements_doc.txt
-
-    
+  system_packages: true
+  
     
