@@ -57,4 +57,4 @@ html_theme = 'default'
 html_static_path = ['_static']
 
 # Exclude C-libraries from build to prevent failing.
-#autodoc_mock_imports = ["h5py", "numpy", "scikit-image"]
+autodoc_mock_imports = ["h5py", "numpy", "scikit-image"]
