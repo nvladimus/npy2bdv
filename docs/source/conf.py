@@ -56,12 +56,5 @@ html_theme = 'default'
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
 
-# Exclude any C-libraries from build
-MOCK_MODULES = ["h5py", "numpy", "scikit-image"]
-from unittest.mock import MagicMock
-class Mock(MagicMock):
-    @classmethod
-    def __getattr__(cls, name):
-            return MagicMock()
- 
-sys.modules.update((mod_name, Mock()) for mod_name in MOCK_MODULES)
+# Exclude C-libraries from build to prevent failing.
+autodoc_mock_imports = ["h5py", "numpy", "scikit-image"]
