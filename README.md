@@ -1,20 +1,17 @@
 # npy2bdv
  A minimalistic library for writing image stacks (numpy arrays) into HDF5 files of 
- Fiji BigDataViewer/BigStitcher format (readable by Imaris as well). The library also supports reading from HDF5 into numpy.
+ Fiji BigDataViewer/BigStitcher format. The library also supports reading from HDF5 into numpy.
  
- Default options are optimized for high-speed writing, 
- to save microscopy images on the fly at full camera speed.
- 
- Python 3.6.
+[![Python 3.6](https://img.shields.io/badge/python-3.6-blue.svg)](https://www.python.org/downloads/release/python-360/)
+
  
  ## Installation
- Run `pip install` from Anaconda prompt, and insert `import npy2bdv` in your code.
+ Run `pip install` from Anaconda prompt, and use `import npy2bdv` in your code.
  
- ## Input
- Any 3d numpy arrays in (z,y,x) axis order as `stack`, or 2d array (y,x) as `plane`. 
+ ## Workflow
+  Any 3d numpy arrays in (z,y,x) axis order as `stack`, or 2d array (y,x) as `plane`. 
  The array type is converted to `uint16` automatically.
  
- ## Pipeline
  1. a writer object is created: it opens a new h5 file and requires info about setups and saving options: 
  number of setup attributes (e.g. channels, angles), compression, subsampling. 
  2. stacks (3d arrays) can be appended to the h5 file 
@@ -28,26 +25,29 @@
  (it may be unknown in the beginning of acquisition).
   
  4. Writing is finalized by calling `BdvWriter.close()`.
- 
- See [`notebook with examples`](/npy2bdv/examples.ipynb) for details.
+
+ ## Documentation
+See Jupyter [`notebook`](/npy2bdv/examples.ipynb) with examples.
+
+API [reference](https://nvladimus.github.io/npy2bdv/).
  
  ## Supported writing options
  * compression methods `None`, `gzip`, `lzf` (`None` by default).
- * downsampling possible for any number of mipmap levels (no downsampling by default). 
- Downsampling is done by averaging, compatible with BigDataViewer/BigStitcher convention.
- * block sizes for H5 storage (default `4,256,256`)
+ * downsampling options: 
+    - any number of mipmap levels
+    - computed via averaging, compatible with BigDataViewer/BigStitcher convention.
+ * user-defined block sizes for H5 storage (default `4,256,256`)
  * any number of time points, illuminations, channels, tiles, angles.
  * arbitrary affine transformation for each individual view (e.g. translation, rotation, shear).
  * arbitrary voxel calibration for each view, to account for spatial anisotropy.
- * individual views can differ in dimensions, voxel size, voxel units, 
- exposure time, and exposure units.
+ * individual views can differ in dimensions, voxel size, voxel units, exposure time, and exposure units.
  * missing views are labeled automatically.
- * support of camera properties: `name`, `exposureTime`, `exposureUnits`
- * support of `generatedBy` meta-information: `microscope` (name and version), `user`
+ * support of additiona meta-information:
+    - camera properties: `name`, `exposureTime`, `exposureUnits`
+    - `microscope` (name and version), `user`
  * writing virtual stacks of arbitrary size plane-by-plane. Handy when your stack is larger than your RAM.
- 
- ## Recent changes (Aug. 2020)
- * virtual stacks can be written with multiple subsampling levels and compression.
+    - virtual stacks can be written with multiple subsampling levels and compression.
+
  
  ## Writing speed
 Writing speeds up to 2300 MB/s can be achieved on a PC with SSD drive. 
