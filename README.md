@@ -9,8 +9,8 @@
  Run `pip install` from Anaconda prompt, and use `import npy2bdv` in your code.
  
  ## Workflow
-  Any 3d numpy arrays in (z,y,x) axis order as `stack`, or 2d array (y,x) as `plane`. 
- The array type is converted to `uint16` automatically.
+ The library accepts any 2d or 3d numpy arrays: (z,y,x) axis order as `stack`, (y,x) as `plane`. 
+ The input is converted to `uint16` automatically.
  
  1. a writer object is created: it opens a new h5 file and requires info about setups and saving options: 
  number of setup attributes (e.g. channels, angles), compression, subsampling. 
