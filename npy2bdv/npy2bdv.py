@@ -16,22 +16,23 @@ class BdvWriter:
                  blockdim=((4, 256, 256),),
                  compression=None,
                  nilluminations=1, nchannels=1, ntiles=1, nangles=1):
-        """Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.
+        """
+        Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.
 
         Parameters:
-            filename: (string) full path to a new file
-            subsamp: (tuple of tuples),
+            filename: (string).
+                File name (full path).
+            subsamp: (tuple of tuples).
                 Subsampling levels in (z,y,x) order. Integers >= 1, default value ((1, 1, 1),) for no subsampling.
-            blockdim: (tuple of tuples),
+            blockdim: (tuple of tuples).
                 Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),), see notes.
-            compression: str
+            compression: (None or str).
                 (None, 'gzip', 'lzf'), HDF5 compression method. Default is None for high-speed writing.
-            nilluminations, nchannels, ntiles, nangles, (int)
-                number of view attributes, default 1.
+            nilluminations, nchannels, ntiles, nangles: (int).
+                Number of view attributes, default 1.
 
         Notes:
-        Input stacks and output files are assumed uint16 type.
-
+        Input stacks and output files are assumed uint16 type. 
         The h5 recommended block (chunk) size should be between 10 KB and 1 MB, larger for large arrays.
         For example, block dimensions (4,256,256)px gives ~0.5MB block size for type int16 (2 bytes) and writes very fast.
         Block size can be larger than stack dimension.
@@ -83,18 +84,21 @@ class BdvWriter:
             grp.create_dataset('subdivisions', data=data_chunks, dtype='<i4')
 
     def append_plane(self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0):
-        """Append a plane to a virtual stack. Requires stack initialization by calling e.g.
-        append_view(stack=None, virtual_stack_dim=(1000,2048,2048)).
-        Parameters:
-            plane: numpy array(uint16)
-                A 2d array of (y,x) pixel values.
-            plane_index: (int)
-                Plane z-position in the virtual stack.
-            time: (int)
-                time index, starting from 0.
-            illumination, channel, view, angle: (int)
-                indices of the view attributes, starting from 0.
         """
+        Append a plane to a virtual stack. Requires stack initialization by calling e.g. 
+        append_view(stack=None, virtual_stack_dim=(1000,2048,2048)). 
+        
+        Parameters:
+            plane: numpy array.
+                A 2d array of (y,x) pixel values.
+            plane_index: (int).
+                Plane z-position in the virtual stack.
+            time: (int).
+                Time index of the view, >=0.
+            illumination, channel, view, angle: (int)
+                Indices of the view attributes, >=0.
+        """
+        
         assert self.virtual_stacks, "Appending planes requires initialization with virtual stack, " \
                                     "see append_view(stack=None,...)"
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
@@ -111,34 +115,36 @@ class BdvWriter:
                     m_affine=None, name_affine='manually defined',
                     voxel_size_xyz=(1, 1, 1), voxel_units='px', calibration=(1, 1, 1),
                     exposure_time=0, exposure_units='s'):
-        """Write numpy 3-dimensional array (stack) to h5 file at specified timepint (itime) and setup number (isetup).
+        """
+        Write numpy 3-dimensional array (stack) to the h5 file with the specified timepoint (*itime*) and attributes.
+        
         Parameters:
-            stack: numpy array (uint16) or None
+            stack: numpy array (uint16) or None.
                 A 3-dimensional stack of uint16 data in (z,y,x) axis order.
                 If None, creates an empty dataset of size huge_stack_dim.
-            virtual_stack_dim: None or tuple of (z,y,x) dimensions, optional
+            virtual_stack_dim: None or tuple of (z,y,x) dimensions, optional.
                 Dimensions to allocate a huge stack and fill it later by individual planes.
-            time: (int)
-                time index, starting from 0.
-            illumination, channel, view, angle: (int)
-                indices of the view attributes, starting from 0.
-            m_affine: a (3,4) numpy array, optional
+            time: (int).
+                Time index, starting from 0.
+            illumination, channel, view, angle: (int). 
+                Indices of the view attributes, starting from 0.
+            m_affine: a (3,4) numpy array, optional.
                 Coefficients of affine transformation matrix (m00, m01m ...)
-            name_affine: str, optional
+            name_affine: str, optional.
                 Name of affine transformation
-            voxel_size_xyz: tuple of 3 elements, optional
+            voxel_size_xyz: tuple of 3 elements, optional.
                 The physical size of voxel, in voxel_units. Default (1, 1, 1).
-            voxel_units: str, optional
-                spatial units (default is 'px').
-            calibration: tuple of 3 elements, optional
+            voxel_units: str, optional.
+                Spatial units (default is 'px').
+            calibration: tuple of 3 elements, optional.
                 The anisotropy factors for (x,y,z) voxel calibration. Default (1, 1, 1).
                 Leave it default unless you are expert in BigStitcher and know how it affects transformations.
-            exposure_time: scalar, optional
+            exposure_time: scalar, optional.
                 Camera exposure time for this view, default 0.
-            exposure_units: str, optional
+            exposure_units: str, optional.
                 Time units for this view, default "s".
-
         """
+        
         assert len(calibration) == 3, "Calibration must be a tuple of 3 elements (x, y, z)."
         assert len(voxel_size_xyz) == 3, "Voxel size must be a tuple of 3 elements (x, y, z)."
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
@@ -191,9 +197,11 @@ class BdvWriter:
 
     def _subsample_stack(self, stack, subsamp_level):
         """Subsampling of 3d stack.
+        
         Parameters:
             stack, numpy 3d array (z,y,x) of int16
             subsamp_level, array-like with 3 elements, eg (2,4,4) for downsampling z(x2), x and y (x4).
+            
         Return:
             down-scaled stack, unit16 type.
         """
@@ -205,9 +213,11 @@ class BdvWriter:
 
     def _subsample_plane(self, plane, subsamp_level):
         """Subsampling of a 2d plane.
+        
         Parameters:
             plane, numpy 2d array (y,x) of int16
             subsamp_level, array-like with 3 elements, eg (1,4,4) for downsampling x and y (x4).
+            
         Return:
             down-scaled plane, unit16 type.
         """
@@ -380,12 +390,14 @@ class BdvWriter:
 
     def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
         """Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
+        
         Parameters:
-            illumination (int) >=0
-            channel (int) >= 0
-            tile (int) >= 0
-            angle (int) >= 0
-        Returns
+            illumination: (int)
+            channel: (int) 
+            tile: (int) 
+            angle: (int) 
+            
+        Return:
             setup_id (int), starting from 0 (first setup)
             """
         setup_id_matrix = np.arange(self.nsetups)
@@ -408,9 +420,10 @@ class BdvReader:
     __version__ = "2020.06.25"
 
     def __init__(self, filename_h5):
-        """Class for reading a BigDataViewer/BigStitcher HDF5 file into numpy array.
+        """
+        Class for reading a BigDataViewer/BigStitcher HDF5 file into numpy array.
 
-        Constructor parameters
+        Parameters:
             filename_h5: (string), optional, full path to a HDF5 file (default None).
         """
         self._fmt = 't{:05d}/s{:02d}/{}'
@@ -427,12 +440,12 @@ class BdvReader:
     def read_view(self, time=0, isetup=0, ilevel=0):
         """Read a view (stack) specified by its time, setup ID, and downsampling level into numpy array (uint16).
 
-        Parameters
+        Parameters:
             time: (int) index of time point (default 0).
             isetup: (int), index of setup ID (default 0)
             ilevel: (int), level of subsampling, if available (default 0, no subsampling)
 
-        Returns
+        Return:
             dataset: a numpy array (dim=3, dtype=uint16)"""
         group_name = self._fmt.format(time, isetup, ilevel)
         if self._file_object:
