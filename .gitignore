@@ -15,6 +15,7 @@ npy2bdv/ignore/
 .packaging.py
 .Python
 build/
+!/docs/build/
 develop-eggs/
 dist/
 downloads/

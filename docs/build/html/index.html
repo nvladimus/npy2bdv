@@ -1,0 +1,287 @@
+
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The npy2bdv documentation &#8212; npy2bdv 1.0.0 documentation</title>
+    <link rel="stylesheet" href="_static/classic.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script src="_static/language_data.js"></script>
+    
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+  </head><body>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="nav-item nav-item-0"><a href="#">npy2bdv 1.0.0 documentation</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">The npy2bdv documentation</a></li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="the-npy2bdv-documentation">
+<h1>The npy2bdv documentation<a class="headerlink" href="#the-npy2bdv-documentation" title="Permalink to this headline">¶</a></h1>
+<div class="toctree-wrapper compound">
+</div>
+</div>
+<div class="section" id="api">
+<h1>API<a class="headerlink" href="#api" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="writing">
+<h2>Writing<a class="headerlink" href="#writing" title="Permalink to this headline">¶</a></h2>
+<dl class="py class">
+<dt id="npy2bdv.BdvWriter">
+<em class="property">class </em><code class="sig-prename descclassname">npy2bdv.</code><code class="sig-name descname">BdvWriter</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">filename</span></em>, <em class="sig-param"><span class="n">subsamp</span><span class="o">=</span><span class="default_value">1, 1, 1</span></em>, <em class="sig-param"><span class="n">blockdim</span><span class="o">=</span><span class="default_value">4, 256, 256</span></em>, <em class="sig-param"><span class="n">compression</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">nilluminations</span><span class="o">=</span><span class="default_value">1</span></em>, <em class="sig-param"><span class="n">nchannels</span><span class="o">=</span><span class="default_value">1</span></em>, <em class="sig-param"><span class="n">ntiles</span><span class="o">=</span><span class="default_value">1</span></em>, <em class="sig-param"><span class="n">nangles</span><span class="o">=</span><span class="default_value">1</span></em><span class="sig-paren">)</span><a class="headerlink" href="#npy2bdv.BdvWriter" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>filename</strong> – (string).
+File name (full path).</p></li>
+<li><p><strong>subsamp</strong> – (tuple of tuples).
+Subsampling levels in (z,y,x) order. Integers &gt;= 1, default value ((1, 1, 1),) for no subsampling.</p></li>
+<li><p><strong>blockdim</strong> – (tuple of tuples).
+Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),), see notes.</p></li>
+<li><p><strong>compression</strong> – (None or str).
+(None, ‘gzip’, ‘lzf’), HDF5 compression method. Default is None for high-speed writing.</p></li>
+<li><p><strong>nilluminations</strong> – (int).
+Number of view attributes, default 1.</p></li>
+<li><p><strong>nchannels</strong> – (int).
+Number of view attributes, default 1.</p></li>
+<li><p><strong>ntiles</strong> – (int).
+Number of view attributes, default 1.</p></li>
+<li><p><strong>nangles</strong> – (int).
+Number of view attributes, default 1.</p></li>
+</ul>
+</dd>
+</dl>
+<p>Notes:
+Input stacks and output files are assumed uint16 type.
+The h5 recommended block (chunk) size should be between 10 KB and 1 MB, larger for large arrays.
+For example, block dimensions (4,256,256)px gives ~0.5MB block size for type int16 (2 bytes) and writes very fast.
+Block size can be larger than stack dimension.</p>
+<dl class="py method">
+<dt id="npy2bdv.BdvWriter.append_plane">
+<code class="sig-name descname">append_plane</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">plane</span></em>, <em class="sig-param"><span class="n">plane_index</span></em>, <em class="sig-param"><span class="n">time</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">illumination</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">channel</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">tile</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">angle</span><span class="o">=</span><span class="default_value">0</span></em><span class="sig-paren">)</span><a class="headerlink" href="#npy2bdv.BdvWriter.append_plane" title="Permalink to this definition">¶</a></dt>
+<dd><p>Append a plane to a virtual stack. Requires stack initialization by calling e.g.
+append_view(stack=None, virtual_stack_dim=(1000,2048,2048)).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>plane</strong> – numpy array.
+A 2d array of (y,x) pixel values.</p></li>
+<li><p><strong>plane_index</strong> – (int).
+Plane z-position in the virtual stack.</p></li>
+<li><p><strong>time</strong> – (int).
+Time index of the view, &gt;=0.</p></li>
+<li><p><strong>illumination</strong> – (int)
+Indices of the view attributes, &gt;=0.</p></li>
+<li><p><strong>channel</strong> – (int)
+Indices of the view attributes, &gt;=0.</p></li>
+<li><p><strong>view</strong> – (int)
+Indices of the view attributes, &gt;=0.</p></li>
+<li><p><strong>angle</strong> – (int)
+Indices of the view attributes, &gt;=0.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="npy2bdv.BdvWriter.append_view">
+<code class="sig-name descname">append_view</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">stack</span></em>, <em class="sig-param"><span class="n">virtual_stack_dim</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">time</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">illumination</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">channel</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">tile</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">angle</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">m_affine</span><span class="o">=</span><span class="default_value">None</span></em>, <em class="sig-param"><span class="n">name_affine</span><span class="o">=</span><span class="default_value">'manually defined'</span></em>, <em class="sig-param"><span class="n">voxel_size_xyz</span><span class="o">=</span><span class="default_value">1, 1, 1</span></em>, <em class="sig-param"><span class="n">voxel_units</span><span class="o">=</span><span class="default_value">'px'</span></em>, <em class="sig-param"><span class="n">calibration</span><span class="o">=</span><span class="default_value">1, 1, 1</span></em>, <em class="sig-param"><span class="n">exposure_time</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">exposure_units</span><span class="o">=</span><span class="default_value">'s'</span></em><span class="sig-paren">)</span><a class="headerlink" href="#npy2bdv.BdvWriter.append_view" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write numpy 3-dimensional array (stack) to the h5 file with the specified timepoint (<em>itime</em>) and attributes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>stack</strong> – numpy array (uint16) or None.
+A 3-dimensional stack of uint16 data in (z,y,x) axis order.
+If None, creates an empty dataset of size huge_stack_dim.</p></li>
+<li><p><strong>virtual_stack_dim</strong> – None or tuple of (z,y,x) dimensions, optional.
+Dimensions to allocate a huge stack and fill it later by individual planes.</p></li>
+<li><p><strong>time</strong> – (int).
+Time index, starting from 0.</p></li>
+<li><p><strong>illumination</strong> – (int).
+Indices of the view attributes, starting from 0.</p></li>
+<li><p><strong>channel</strong> – (int).
+Indices of the view attributes, starting from 0.</p></li>
+<li><p><strong>view</strong> – (int).
+Indices of the view attributes, starting from 0.</p></li>
+<li><p><strong>angle</strong> – (int).
+Indices of the view attributes, starting from 0.</p></li>
+<li><p><strong>m_affine</strong> – a (3,4) numpy array, optional.
+Coefficients of affine transformation matrix (m00, m01m …)</p></li>
+<li><p><strong>name_affine</strong> – str, optional.
+Name of affine transformation</p></li>
+<li><p><strong>voxel_size_xyz</strong> – tuple of 3 elements, optional.
+The physical size of voxel, in voxel_units. Default (1, 1, 1).</p></li>
+<li><p><strong>voxel_units</strong> – str, optional.
+Spatial units (default is ‘px’).</p></li>
+<li><p><strong>calibration</strong> – tuple of 3 elements, optional.
+The anisotropy factors for (x,y,z) voxel calibration. Default (1, 1, 1).
+Leave it default unless you are expert in BigStitcher and know how it affects transformations.</p></li>
+<li><p><strong>exposure_time</strong> – scalar, optional.
+Camera exposure time for this view, default 0.</p></li>
+<li><p><strong>exposure_units</strong> – str, optional.
+Time units for this view, default “s”.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="npy2bdv.BdvWriter.close">
+<code class="sig-name descname">close</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#npy2bdv.BdvWriter.close" title="Permalink to this definition">¶</a></dt>
+<dd><p>Close the file object.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="npy2bdv.BdvWriter.update_setup_id_present">
+<code class="sig-name descname">update_setup_id_present</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">isetup</span></em>, <em class="sig-param"><span class="n">itime</span></em><span class="sig-paren">)</span><a class="headerlink" href="#npy2bdv.BdvWriter.update_setup_id_present" title="Permalink to this definition">¶</a></dt>
+<dd><p>Update the lookup table (list of lists) for missing setups</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="npy2bdv.BdvWriter.write_xml_file">
+<code class="sig-name descname">write_xml_file</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">ntimes</span><span class="o">=</span><span class="default_value">1</span></em>, <em class="sig-param"><span class="n">camera_name</span><span class="o">=</span><span class="default_value">'default'</span></em>, <em class="sig-param"><span class="n">microscope_name</span><span class="o">=</span><span class="default_value">'default'</span></em>, <em class="sig-param"><span class="n">microscope_version</span><span class="o">=</span><span class="default_value">'0.0'</span></em>, <em class="sig-param"><span class="n">user_name</span><span class="o">=</span><span class="default_value">'user'</span></em><span class="sig-paren">)</span><a class="headerlink" href="#npy2bdv.BdvWriter.write_xml_file" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write XML header file for the HDF5 file.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ntimes</strong> – int
+number of time points</p></li>
+<li><p><strong>camera_name</strong> – str, optional
+Name of the camera (same for all setups at the moment, ToDo)</p></li>
+<li><p><strong>microscope_name</strong> – str, optional</p></li>
+<li><p><strong>microscope_version</strong> – str, optional</p></li>
+<li><p><strong>user_name</strong> – str, optional</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="reading">
+<h2>Reading<a class="headerlink" href="#reading" title="Permalink to this headline">¶</a></h2>
+<dl class="py class">
+<dt id="npy2bdv.BdvReader">
+<em class="property">class </em><code class="sig-prename descclassname">npy2bdv.</code><code class="sig-name descname">BdvReader</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">filename_h5</span></em><span class="sig-paren">)</span><a class="headerlink" href="#npy2bdv.BdvReader" title="Permalink to this definition">¶</a></dt>
+<dd><p>Class for reading a BigDataViewer/BigStitcher HDF5 file into numpy array.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>filename_h5</strong> – (string), optional, full path to a HDF5 file (default None).</p>
+</dd>
+</dl>
+<dl class="py method">
+<dt id="npy2bdv.BdvReader.close">
+<code class="sig-name descname">close</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#npy2bdv.BdvReader.close" title="Permalink to this definition">¶</a></dt>
+<dd><p>Close the file object.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt id="npy2bdv.BdvReader.read_view">
+<code class="sig-name descname">read_view</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">time</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">isetup</span><span class="o">=</span><span class="default_value">0</span></em>, <em class="sig-param"><span class="n">ilevel</span><span class="o">=</span><span class="default_value">0</span></em><span class="sig-paren">)</span><a class="headerlink" href="#npy2bdv.BdvReader.read_view" title="Permalink to this definition">¶</a></dt>
+<dd><p>Read a view (stack) specified by its time, setup ID, and downsampling level into numpy array (uint16).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>time</strong> – (int) index of time point (default 0).</p></li>
+<li><p><strong>isetup</strong> – (int), index of setup ID (default 0)</p></li>
+<li><p><strong>ilevel</strong> – (int), level of subsampling, if available (default 0, no subsampling)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>a numpy array (dim=3, dtype=uint16)</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>dataset</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="npy2bdv.BdvReader.set_path_h5">
+<code class="sig-name descname">set_path_h5</code><span class="sig-paren">(</span><em class="sig-param"><span class="n">filename_h5</span></em><span class="sig-paren">)</span><a class="headerlink" href="#npy2bdv.BdvReader.set_path_h5" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the file path to HDF5 file. If another file was already open, it closes it before proceeding</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+</div>
+<div class="section" id="examples">
+<h1>Examples<a class="headerlink" href="#examples" title="Permalink to this headline">¶</a></h1>
+<p>Please refer to this Jupyter <a class="reference external" href="https://github.com/nvladimus/npy2bdv/blob/master/npy2bdv/examples.ipynb">notebook</a>.</p>
+</div>
+
+
+            <div class="clearer"></div>
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="#">Table of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">The npy2bdv documentation</a></li>
+<li><a class="reference internal" href="#api">API</a><ul>
+<li><a class="reference internal" href="#writing">Writing</a></li>
+<li><a class="reference internal" href="#reading">Reading</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#examples">Examples</a></li>
+</ul>
+
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/index.rst.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="nav-item nav-item-0"><a href="#">npy2bdv 1.0.0 documentation</a> &#187;</li>
+        <li class="nav-item nav-item-this"><a href="">The npy2bdv documentation</a></li> 
+      </ul>
+    </div>
+    <div class="footer" role="contentinfo">
+        &#169; Copyright 2020, Nikita Vladimirov.
+      Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 3.2.1.
+    </div>
+  </body>
+</html>
