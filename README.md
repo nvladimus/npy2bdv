@@ -3,7 +3,7 @@
  Fiji BigDataViewer/BigStitcher format. The library also supports reading from HDF5 into numpy.
  
 [![Python 3.6](https://img.shields.io/badge/python-3.6-blue.svg)](https://www.python.org/downloads/release/python-360/)
-
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
  
  ## Installation
  Run `pip install` from Anaconda prompt, and use `import npy2bdv` in your code.
