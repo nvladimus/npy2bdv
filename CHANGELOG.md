@@ -4,3 +4,5 @@
 :gem: New example: writing multiple tiles on a grid, with (optionally) some tiles missing.
 
 :book: API [documentation](https://nvladimus.github.io/npy2bdv/) is added.
+
+:warning: Release notation changed from YYYY.mm.dd to 1.0.0.

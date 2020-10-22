@@ -12,7 +12,7 @@ __pycache__/
 npy2bdv/ignore/
 
 # Distribution / packaging
-.packaging.py
+.packaging.bat
 .Python
 build/
 !/docs/build/
