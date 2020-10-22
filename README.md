@@ -30,6 +30,8 @@
 See Jupyter [`notebook`](/npy2bdv/examples.ipynb) with examples.
 
 API [reference](https://nvladimus.github.io/npy2bdv/).
+
+[Recent changes](CHANGELOG.md)
  
  ## Supported writing options
  * compression methods `None`, `gzip`, `lzf` (`None` by default).

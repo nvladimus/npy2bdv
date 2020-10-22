@@ -9,7 +9,7 @@ import skimage.transform
 
 
 class BdvWriter:
-    __version__ = "2020.08"
+    __version__ = "2020.10"
 
     def __init__(self, filename,
                  subsamp=((1, 1, 1),),
@@ -71,6 +71,9 @@ class BdvWriter:
         self.exposure_units = {}
         self.compression = compression
         self.filename = filename
+        if os.path.exists(self.filename):
+            os.remove(self.filename)
+            print("Warning: H5 file already exists, overwriting!")
         self.file_object = h5py.File(filename, 'a')
         self._write_setups_header()
         self.virtual_stacks = False
@@ -102,7 +105,7 @@ class BdvWriter:
                 Time index of the view, >=0.
             illumination: int
             channel: int
-            view: int
+            tile: int
             angle: int
                 Indices of the view attributes, >=0.
         """
@@ -137,7 +140,7 @@ class BdvWriter:
                 Time index, >=0.
             illumination: int
             channel: int
-            view: int
+            tile: int
             angle: int
                 Indices of the view attributes, >= 0.
             m_affine: a numpy array of shape (3,4), optional.
@@ -185,7 +188,7 @@ class BdvWriter:
                                    shape=virtual_stack_dim // self.subsamp[ilevel],
                                    compression=self.compression, dtype='int16')
         if m_affine is not None:
-            self.affine_matrices[isetup] = m_affine
+            self.affine_matrices[isetup] = m_affine.copy()
             self.affine_names[isetup] = name_affine
         self.calibrations[isetup] = calibration
         self.voxel_size_xyz[isetup] = voxel_size_xyz
@@ -373,7 +376,7 @@ class BdvWriter:
                         n_prec = 6
                         mx_string = np.array2string(self.affine_matrices[isetup].flatten(), separator=' ',
                                                     precision=n_prec, floatmode='fixed',
-                                                    max_line_width=(n_prec+5)*4)
+                                                    max_line_width=(n_prec+6)*4)
                         ET.SubElement(vt, 'affine').text = mx_string[1:-1].strip()
 
                     # write registration transformation (calibration)
