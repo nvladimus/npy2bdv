@@ -6,7 +6,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
  
  ## Installation
- Run `pip install` from Anaconda prompt, and use `import npy2bdv` in your code.
+ Run `pip install` in the command line. Use `import npy2bdv` in the code.
  
  ## Workflow
  The library accepts any 2d or 3d numpy arrays: (z,y,x) axis order as `stack`, (y,x) as `plane`. 
@@ -27,7 +27,7 @@
  4. Writing is finalized by calling `BdvWriter.close()`.
 
  ## Documentation
-See Jupyter [`notebook`](/npy2bdv/examples.ipynb) with examples.
+For a quick start, see examples in the Jupyter [`notebook`](/npy2bdv/examples.ipynb).
 
 API [reference](https://nvladimus.github.io/npy2bdv/).
 
