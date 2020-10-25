@@ -15,7 +15,8 @@ class BdvWriter:
                  subsamp=((1, 1, 1),),
                  blockdim=((4, 256, 256),),
                  compression=None,
-                 nilluminations=1, nchannels=1, ntiles=1, nangles=1):
+                 nilluminations=1, nchannels=1, ntiles=1, nangles=1,
+                 overwrite=False):
         """Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.
 
         Parameters:
@@ -33,6 +34,8 @@ class BdvWriter:
             ntiles: int
             nangles: int
                 Number of view attributes, >=1.
+            overwrite: boolean
+                If True, overwrite existing file. Default False.
 
         .. note::
         ------
@@ -72,8 +75,11 @@ class BdvWriter:
         self.compression = compression
         self.filename = filename
         if os.path.exists(self.filename):
-            os.remove(self.filename)
-            print("Warning: H5 file already exists, overwriting!")
+            if overwrite:
+                os.remove(self.filename)
+                print("Warning: H5 file already exists, overwriting.")
+            else:
+                raise FileExistsError(f"File {self.filename} already exists.")
         self.file_object = h5py.File(filename, 'a')
         self._write_setups_header()
         self.virtual_stacks = False
