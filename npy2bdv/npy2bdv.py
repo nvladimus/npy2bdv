@@ -393,26 +393,10 @@ class BdvWriter:
                     ET.SubElement(vt, 'affine').text = \
                         '{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0'.format(calx, caly, calz)
 
-        self._xml_indent(root)
+        xml_indent(root)
         tree = ET.ElementTree(root)
         tree.write(os.path.splitext(self.filename)[0] + ".xml", xml_declaration=True, encoding='utf-8', method="xml")
         return
-
-    def _xml_indent(self, elem, level=0):
-        """Pretty printing function"""
-        i = "\n" + level * "  "
-        if len(elem):
-            if not elem.text or not elem.text.strip():
-                elem.text = i + "  "
-            if not elem.tail or not elem.tail.strip():
-                elem.tail = i
-            for elem in elem:
-                self._xml_indent(elem, level + 1)
-            if not elem.tail or not elem.tail.strip():
-                elem.tail = i
-        else:
-            if level and (not elem.tail or not elem.tail.strip()):
-                elem.tail = i
 
     def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
         """Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
@@ -445,7 +429,7 @@ class BdvWriter:
 
 
 class BdvReader:
-    __version__ = "2020.06.25"
+    __version__ = "2020.10"
 
     def __init__(self, filename_h5):
         """
@@ -457,15 +441,23 @@ class BdvReader:
                 Path to the HDF5 file.
         """
         self._fmt = 't{:05d}/s{:02d}/{}'
-        assert os.path.exists(filename_h5), "Error: HDF5 file not found"
-        self._file_object = h5py.File(filename_h5, 'r')
+        self.filename_h5 = filename_h5
+        self.filename_xml = self.filename_h5[:-2] + 'xml'
+        assert os.path.exists(self.filename_h5), f"Error: {self.filename_h5} file not found"
+        assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
+        self._file_object_h5 = h5py.File(filename_h5, 'r')
+        self._tree = self._root = None
 
-    def set_path_h5(self, filename_h5):
+    def set_path(self, filename_h5):
         """Set the file path to HDF5 file. If another file was already open, it closes it before proceeding"""
-        assert os.path.exists(filename_h5), "Error: HDF5 file not found"
-        if self._file_object:
-            self._file_object.close()
-        self._file_object = h5py.File(filename_h5, 'r')
+        filename_xml = filename_h5[:-2] + 'xml'
+        assert os.path.exists(filename_h5), f"Error: {filename_h5} file not found"
+        assert os.path.exists(filename_xml), f"Error: {filename_xml} file not found"
+        self.filename_h5 = filename_h5
+        self.filename_xml = filename_xml
+        if self._file_object_h5:
+            self._file_object_h5.close()
+        self._file_object_h5 = h5py.File(filename_h5, 'r')
 
     def read_view(self, time=0, isetup=0, ilevel=0):
         """Read a view (stack) specified by its time, setup ID, and downsampling level into numpy array (uint16).
@@ -483,12 +475,46 @@ class BdvReader:
         --------
             dataset: numpy array (dim=3, dtype=uint16)"""
         group_name = self._fmt.format(time, isetup, ilevel)
-        if self._file_object:
-            dataset = self._file_object[group_name]["cells"].value.astype('uint16')
+        if self._file_object_h5:
+            dataset = self._file_object_h5[group_name]["cells"].value.astype('uint16')
             return dataset
         else:
             raise ValueError('File object is None')
 
+    def _get_xml_root(self):
+        """Load the meta-information information from XML header file"""
+        assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
+        with open(self.filename_xml, 'r') as file:
+            _tree = ET.parse(file)
+        self._root = _tree.getroot()
+
+    def get_voxel_size(self):
+        """"Get voxel size as a list of tuples (x,y,z)"""
+        self._get_xml_root()
+        voxel_sizes = self._root.findall("./SequenceDescription/ViewSetups/ViewSetup/voxelSize/size")
+        vox_size_list = []
+        for v in voxel_sizes:
+            px_size = tuple([float(size) for size in v.text.split()])
+            vox_size_list.append(px_size)
+        return vox_size_list
+
     def close(self):
         """Close the file object."""
-        self._file_object.close()
+        self._file_object_h5.close()
+
+
+def xml_indent(elem, level=0):
+    """Pretty printing function"""
+    i = "\n" + level * "  "
+    if len(elem):
+        if not elem.text or not elem.text.strip():
+            elem.text = i + "  "
+        if not elem.tail or not elem.tail.strip():
+            elem.tail = i
+        for elem in elem:
+            xml_indent(elem, level + 1)
+        if not elem.tail or not elem.tail.strip():
+            elem.tail = i
+    else:
+        if level and (not elem.tail or not elem.tail.strip()):
+            elem.tail = i
