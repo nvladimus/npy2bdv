@@ -431,33 +431,26 @@ class BdvWriter:
 class BdvReader:
     __version__ = "2020.10"
 
-    def __init__(self, filename_h5):
+    def __init__(self, filename):
         """
         Class for reading a BigDataViewer/BigStitcher HDF5 file into numpy array.
 
         Parameters:
         -----------
-            filename_h5: string,
-                Path to the HDF5 file.
+            filename: string,
+                Path to either .h5 or .xml file. The other file of the pair must be present in the same folder.
         """
         self._fmt = 't{:05d}/s{:02d}/{}'
-        self.filename_h5 = filename_h5
-        self.filename_xml = self.filename_h5[:-2] + 'xml'
+        if filename[-2:] == 'h5':
+            self.filename_h5 = filename
+            self.filename_xml = filename[:-2] + 'xml'
+        elif filename[-3:] == 'xml':
+            self.filename_h5 = filename[:-3] + 'h5'
+            self.filename_xml = filename
         assert os.path.exists(self.filename_h5), f"Error: {self.filename_h5} file not found"
         assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
-        self._file_object_h5 = h5py.File(filename_h5, 'r')
+        self._file_object_h5 = None
         self._tree = self._root = None
-
-    def set_path(self, filename_h5):
-        """Set the file path to HDF5 file. If another file was already open, it closes it before proceeding"""
-        filename_xml = filename_h5[:-2] + 'xml'
-        assert os.path.exists(filename_h5), f"Error: {filename_h5} file not found"
-        assert os.path.exists(filename_xml), f"Error: {filename_xml} file not found"
-        self.filename_h5 = filename_h5
-        self.filename_xml = filename_xml
-        if self._file_object_h5:
-            self._file_object_h5.close()
-        self._file_object_h5 = h5py.File(filename_h5, 'r')
 
     def read_view(self, time=0, isetup=0, ilevel=0):
         """Read a view (stack) specified by its time, setup ID, and downsampling level into numpy array (uint16).
@@ -474,6 +467,7 @@ class BdvReader:
         Returns:
         --------
             dataset: numpy array (dim=3, dtype=uint16)"""
+        self._file_object_h5 = h5py.File(self.filename_h5, 'r')
         group_name = self._fmt.format(time, isetup, ilevel)
         if self._file_object_h5:
             dataset = self._file_object_h5[group_name]["cells"].value.astype('uint16')
@@ -484,23 +478,121 @@ class BdvReader:
     def _get_xml_root(self):
         """Load the meta-information information from XML header file"""
         assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
-        with open(self.filename_xml, 'r') as file:
-            _tree = ET.parse(file)
-        self._root = _tree.getroot()
+        if self._root is None:
+            with open(self.filename_xml, 'r') as file:
+                _tree = ET.parse(file)
+            self._root = _tree.getroot()
+        else:
+            pass
 
-    def get_voxel_size(self):
-        """"Get voxel size as a list of tuples (x,y,z)"""
+    def get_setup_property(self, key, isetup=0) -> tuple:
+        """"Get property of a setup from XML file. No time information required, since the setups are fixed.
+        Tuples are returned in (x, y, z) order, as in the XML file.
+        Parameters:
+        -----------
+            key: str
+                Name of the property: 'voxel_size' | 'view_shape'
+            isetup: int
+                Index of the setup, >=0
+        Returns:
+        --------
+            Value of the property, as a tuple.
+        """
+        accepted_keys = ['voxel_size', 'view_shape']
+        assert key in accepted_keys, f"Key {key} not recognized, must be one of: {accepted_keys}."
+        with open(self.filename_xml, 'r') as file:
+            root = ET.parse(file).getroot()
+            if key == 'voxel_size':
+                path = "./SequenceDescription/ViewSetups/ViewSetup/voxelSize/size"
+            elif key == 'view_shape':
+                path = "./SequenceDescription/ViewSetups/ViewSetup/size"
+            props_list = root.findall(path)
+            assert 0 <= isetup < len(props_list), f"Setup index {isetup} out of range 0..{len(props_list)-1}"
+            value = tuple([float(val) for val in props_list[isetup].text.split()])
+            return value
+
+    def append_affine(self, time, isetup, m_affine, name_affine="Appended affine transformation using npy2bdv."):
+        """" Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+        Each column represents coordinate unit vectors after the transformation.
+        The last column represents translation in (x,y,z).
+        Parameters:
+        -----------
+            time: int
+                Time index, >=0.
+            isetup: int
+                Setup index, >=0.
+            m_affine: numpy array of shape (3,4)
+                Coefficients of affine transformation matrix (m00, m01, ...)
+            name_affine: str, optional
+                Name of the affine transformation.
+            """
         self._get_xml_root()
-        voxel_sizes = self._root.findall("./SequenceDescription/ViewSetups/ViewSetup/voxelSize/size")
-        vox_size_list = []
-        for v in voxel_sizes:
-            px_size = tuple([float(size) for size in v.text.split()])
-            vox_size_list.append(px_size)
-        return vox_size_list
+        assert m_affine.shape == (3,4), "m_affine must be a numpy array of shape (3,4)"
+        found = False
+        for node in self._root.findall(f'./ViewRegistrations/ViewRegistration"]'):
+            if int(node.attrib['setup']) == isetup and int(node.attrib['timepoint']) == time:
+                found = True
+                break
+        assert found, f'Node not found: <ViewRegistration setup="{isetup}" timepoint="{time}">'
+        vt = ET.SubElement(node, 'ViewTransform')
+        vt.set('type', 'affine')
+        ET.SubElement(vt, 'Name').text = name_affine
+        n_prec = 6
+        mx_string = np.array2string(m_affine.flatten(), separator=' ',
+                                    precision=n_prec, floatmode='fixed',
+                                    max_line_width=(n_prec + 6) * 4)
+        ET.SubElement(vt, 'affine').text = mx_string[1:-1].strip()
+
+    def save_xml(self, filename):
+        self._get_xml_root()
+        xml_indent(self._root)
+        tree = ET.ElementTree(self._root)
+        tree.write(os.path.splitext(self.filename)[0] + ".xml", xml_declaration=True, encoding='utf-8', method="xml")
 
     def close(self):
-        """Close the file object."""
-        self._file_object_h5.close()
+        """Close the H5 file."""
+        if self._file_object_h5 is not None:
+            self._file_object_h5.close()
+
+
+class BdvEditor:
+    """"Edits H5 and XML files in-place"""
+    __version__ = "2020.10"
+
+    def __init__(self, filename):
+        """
+        Class for editing existing H5/XML file pairs.
+
+        Parameters:
+        -----------
+            filename: string,
+                Path to either .h5 or .xml file. The other file of the pair must be present in the same folder.
+        """
+        if filename[-2:] == 'h5':
+            self.filename_h5 = filename
+            self.filename_xml = filename[:-2] + 'xml'
+        elif filename[-3:] == 'xml':
+            self.filename_h5 = filename[:-3] + 'h5'
+            self.filename_xml = filename
+        assert os.path.exists(self.filename_h5), f"Error: {self.filename_h5} file not found"
+        assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
+        self._root = None
+
+    def get_attribute_count(self):
+        """ Get the number of view attributes: time points, illuminations, channels, tiles, angles, using the XML file.
+        Returns:
+        --------
+        (ntimes, nilluminations, nchannels, ntiles, nangle)
+         """
+        with open(self.filename_xml, 'r') as file:
+            root = ET.parse(file).getroot()
+            element = root.find("./SequenceDescription/Timepoints[@type='range']")
+            nt = int(element.find('last').text) - int(element.find('first').text) + 1 if element else 0
+            ni = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='illumination']/Illumination"))
+            nch = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='channel']/Channel"))
+            ntiles = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='tile']/Tile"))
+            nang = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='angle']/Angle"))
+        return nt, ni, nch, ntiles, nang
 
 
 def xml_indent(elem, level=0):
