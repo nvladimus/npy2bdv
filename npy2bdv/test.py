@@ -24,7 +24,7 @@ class TestReadWrite(unittest.TestCase):
             os.mkdir(self.test_dir)
 
         self.NZ, self.NY, self.NX = 4, 65, 65 # XY dims must be odd to get nominal 65535 peak value.
-        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 3, 4, 5, 6
+        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 3, 4, 5, 4
         
         self.stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
         for z in range(self.NZ):
@@ -52,28 +52,46 @@ class TestReadWrite(unittest.TestCase):
     def test_range_uint16(self):
         """Check if the reader imports full uint16 range correctly"""
         assert os.path.exists(self.fname), f'File {self.fname} not found.'
-        reader = npy2bdv.BdvReader(self.fname)
+        reader = npy2bdv.BdvEditor(self.fname)
         for t in range(self.N_T):
-            for s in range(self.N_CH * self.N_ILL * self.N_TILES * self.N_ANGLES):
-                view = reader.read_view(time=t, isetup=s)
-                self.assertTrue(view.min() >= 0, f"Min() value incorrect: {view.min()}")
-                self.assertTrue(view.max() == 65535, f"Max() value incorrect: {view.max()}")
-                self.assertTrue((view == self.stack).all(), "Written stack differs from the loaded stack.")
+            for i_ch in range(self.N_CH):
+                for i_illum in range(self.N_ILL):
+                    for i_tile in range(self.N_TILES):
+                        for i_angle in range(self.N_ANGLES):
+                            view = reader.read_view(time=t,
+                                                    channel=i_ch,
+                                                    illumination=i_illum,
+                                                    tile=i_tile,
+                                                    angle=i_angle)
+                            self.assertTrue(view.min() >= 0, f"Min() value incorrect: {view.min()}")
+                            self.assertTrue(view.max() == 65535, f"Max() value incorrect: {view.max()}")
+                            self.assertTrue((view == self.stack).all(), "Written stack differs from the loaded stack.")
         reader.close()
 
-    def test_xml_info(self):
+    def test_view_properties(self):
         """"BdvReader(): does the meta-info in XML file have expected values?"""
         assert os.path.exists(self.fname), f'File {self.fname} not found.'
-        reader = npy2bdv.BdvReader(self.fname)
-        for isetup in range(self.N_CH * self.N_ILL * self.N_TILES * self.N_ANGLES):
-            vox_size = reader.get_setup_property("voxel_size", isetup)
-            view_shape = reader.get_setup_property("view_shape", isetup)
-            self.assertEqual(vox_size, (1, 1, 4), f"Voxel size is incorrect: {vox_size}.")
-            self.assertEqual(view_shape, self.stack.shape[::-1], f"View shape incorrect: {view_shape}.")
+        reader = npy2bdv.BdvEditor(self.fname)
+        for i_ch in range(self.N_CH):
+            for i_illum in range(self.N_ILL):
+                for i_tile in range(self.N_TILES):
+                    for i_angle in range(self.N_ANGLES):
+                        vox_size = reader.get_view_property("voxel_size",
+                                                            channel=i_ch,
+                                                            illumination=i_illum,
+                                                            tile=i_tile,
+                                                            angle=i_angle)
+                        view_shape = reader.get_view_property("view_shape",
+                                                              channel=i_ch,
+                                                              illumination=i_illum,
+                                                              tile=i_tile,
+                                                              angle=i_angle)
+                        self.assertEqual(vox_size, (1, 1, 4), f"Voxel size is incorrect: {vox_size}.")
+                        self.assertEqual(view_shape, self.stack.shape[::-1], f"View shape incorrect: {view_shape}.")
         reader.close()
 
-    def test_attribute_reading(self):
-        """"BdvEditor(): do the attributes have expected values?"""
+    def test_attribute_counts(self):
+        """"BdvEditor(): do the attribute total counts have expected values?"""
         assert os.path.exists(self.fname), f'File {self.fname} not found.'
         editor = npy2bdv.BdvEditor(self.fname)
         ntimes, nilluminations, nchannels, ntiles, nangles = editor.get_attribute_count()

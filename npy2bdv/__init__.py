@@ -1,3 +1,3 @@
-from .npy2bdv import BdvWriter, BdvReader, BdvEditor
+from .npy2bdv import BdvWriter, BdvEditor
 
 
