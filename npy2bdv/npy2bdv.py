@@ -450,7 +450,7 @@ class BdvEditor:
             self.filename_xml = filename
         assert os.path.exists(self.filename_h5), f"Error: {self.filename_h5} file not found"
         assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
-        self._file_object_h5 = h5py.File(self.filename_h5, 'r')
+        self._file_object_h5 = h5py.File(self.filename_h5, 'r+')
         self._root = None
         self.ntimes, self.nilluminations, self.nchannels, self.ntiles, self.nangles = self.get_attribute_count()
         self.nsetups = self.nilluminations * self.nchannels * self.ntiles * self.nangles
@@ -473,6 +473,7 @@ class BdvEditor:
 
     def read_view(self, time=0, illumination=0, channel=0, tile=0, angle=0, ilevel=0):
         """Read a view (stack) specified by its time, attributes, and downsampling level into numpy array (uint16).
+        Todo: implement detection of missing views using XML file, return None.
 
         Parameters:
         -----------
@@ -497,11 +498,14 @@ class BdvEditor:
         else:
             raise ValueError('File object is None')
 
-    def crop_view(self, illumination=0, channel=0, tile=0, angle=0, ilevel=0):
+    def crop_view(self, bbox_xyz=((1, -1), (1, -1), None), illumination=0, channel=0, tile=0, angle=0, ilevel=0):
         """Crop a view in-place, both in H5 and XML files, for all time points.
 
         Parameters:
         -----------
+            bbox_xyz: tuple of int
+                Bounding box of the crop. Default `((1, -1), (1, -1), None)` crops 1 px from each side in x and y,
+                and leaves z unchanged.
             illumination: int
             channel: int
             tile: int
@@ -510,6 +514,21 @@ class BdvEditor:
             ilevel: int
                 Level of subsampling, if available (default 0, no subsampling)
         """
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        group_name = self._fmt.format(time, isetup, ilevel)
+        if self._file_object_h5:
+            view = self._file_object_h5[group_name]["cells"].value.astype('uint16')
+            if bbox_xyz[0]:
+                view = view[:, :, slice(*bbox_xyz[0])]
+            if bbox_xyz[1]:
+                view = view[:, slice(*bbox_xyz[1]), :]
+            if bbox_xyz[2]:
+                view = view[slice(*bbox_xyz[2]), :, :]
+            # Todo
+        else:
+            raise ValueError('File object is None')
+
+
     def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
         """Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
 
