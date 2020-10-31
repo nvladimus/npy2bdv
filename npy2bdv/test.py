@@ -101,6 +101,10 @@ class TestReadWrite(unittest.TestCase):
         self.assertEqual(ntiles, self.N_TILES, f"ntiles is incorrect: {ntiles}.")
         self.assertEqual(nangles, self.N_ANGLES, f"nangles is incorrect: {nangles}.")
 
+    @unittest.skip
+    def test_cropping(self):
+        """"BdvEditor(): crop a view and check if new H5 view size matches the XML view size. Todo"""
+
     def tearDown(self) -> None:
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)

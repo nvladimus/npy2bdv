@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 from xml.etree import ElementTree as ET
 import skimage.transform
-
+import shutil
 
 class BdvWriter:
     __version__ = "2020.10"
@@ -396,7 +396,6 @@ class BdvWriter:
         xml_indent(root)
         tree = ET.ElementTree(root)
         tree.write(os.path.splitext(self.filename)[0] + ".xml", xml_declaration=True, encoding='utf-8', method="xml")
-        return
 
     def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
         """Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
@@ -493,7 +492,7 @@ class BdvEditor:
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         group_name = self._fmt.format(time, isetup, ilevel)
         if self._file_object_h5:
-            dataset = self._file_object_h5[group_name]["cells"].value.astype('uint16')
+            dataset = self._file_object_h5[group_name]["cells"][()].astype('uint16')
             return dataset
         else:
             raise ValueError('File object is None')
@@ -504,8 +503,7 @@ class BdvEditor:
         Parameters:
         -----------
             bbox_xyz: tuple of int
-                Bounding box of the crop. Default `((1, -1), (1, -1), None)` crops 1 px from each side in x and y,
-                and leaves z unchanged.
+                Bounding box of the crop. Default `((1, -1), (2, -2), None)` crops to view[1:-1, 2:-2, :].
             illumination: int
             channel: int
             tile: int
@@ -515,19 +513,31 @@ class BdvEditor:
                 Level of subsampling, if available (default 0, no subsampling)
         """
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
-        group_name = self._fmt.format(time, isetup, ilevel)
         if self._file_object_h5:
-            view = self._file_object_h5[group_name]["cells"].value.astype('uint16')
-            if bbox_xyz[0]:
-                view = view[:, :, slice(*bbox_xyz[0])]
-            if bbox_xyz[1]:
-                view = view[:, slice(*bbox_xyz[1]), :]
-            if bbox_xyz[2]:
-                view = view[slice(*bbox_xyz[2]), :, :]
-            # Todo
+            for time in range(self.ntimes):
+                group_name = self._fmt.format(time, isetup, ilevel)
+                view_dataset = self._file_object_h5[group_name]["cells"]
+                view_arr = view_dataset[()]
+                if bbox_xyz[0]:
+                    view_arr = view_arr[:, :, slice(*bbox_xyz[0])]
+                if bbox_xyz[1]:
+                    view_arr = view_arr[:, slice(*bbox_xyz[1]), :]
+                if bbox_xyz[2]:
+                    view_arr = view_arr[slice(*bbox_xyz[2]), :, :]
+                view_dataset.resize(view_arr.shape)
+                view_dataset = view_arr
+                self._file_object_h5.flush()
         else:
-            raise ValueError('File object is None')
-
+            raise FileNotFoundError(self.filename_h5)
+        # Edit the XML file as well.
+        with open(self.filename_xml, 'r+') as file:
+            self._get_xml_root()
+            for elem in self._root.findall("./SequenceDescription/ViewSetups/ViewSetup"):
+                elem_id = elem.find("id")
+                if int(elem_id.text) == isetup:
+                    nz, ny, nx = tuple(view_arr.shape)
+                    elem_size = elem.find("size")
+                    elem_size.text = '{} {} {}'.format(nx, ny, nz)
 
     def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
         """Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
@@ -574,6 +584,7 @@ class BdvEditor:
             elif key == 'view_shape':
                 path = "./SequenceDescription/ViewSetups/ViewSetup/size"
             props_list = root.findall(path)
+            # Todo: possible bug here, if the views are not in setupID order.
             assert 0 <= isetup < len(props_list), f"Setup index {isetup} out of range 0..{len(props_list)-1}"
             value = tuple([float(val) for val in props_list[isetup].text.split()])
             return value
@@ -596,7 +607,7 @@ class BdvEditor:
         self._get_xml_root()
         assert m_affine.shape == (3,4), "m_affine must be a numpy array of shape (3,4)"
         found = False
-        for node in self._root.findall(f'./ViewRegistrations/ViewRegistration"]'):
+        for node in self._root.findall('./ViewRegistrations/ViewRegistration'):
             if int(node.attrib['setup']) == isetup and int(node.attrib['timepoint']) == time:
                 found = True
                 break
@@ -615,21 +626,19 @@ class BdvEditor:
         assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
         if self._root is None:
             with open(self.filename_xml, 'r') as file:
-                _tree = ET.parse(file)
-            self._root = _tree.getroot()
+                self._root = ET.parse(file).getroot()
         else:
             pass
 
-    def save_xml(self, filename):
-        self._get_xml_root()
-        xml_indent(self._root)
-        tree = ET.ElementTree(self._root)
-        tree.write(self.filename_xml, xml_declaration=True, encoding='utf-8', method="xml")
-
     def close(self):
-        """Close the H5 file."""
+        """Finalize the H5 and XML files."""
         if self._file_object_h5 is not None:
             self._file_object_h5.close()
+        if self._root is not None:
+            xml_indent(self._root)
+            tree = ET.ElementTree(self._root)
+            shutil.copy(self.filename_xml, self.filename_xml + '~1') # backup the previous XML file.
+            tree.write(self.filename_xml, xml_declaration=True, encoding='utf-8', method="xml")
 
 
 def xml_indent(elem, level=0):
