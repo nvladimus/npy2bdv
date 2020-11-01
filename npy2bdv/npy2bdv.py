@@ -393,7 +393,7 @@ class BdvWriter:
                     ET.SubElement(vt, 'affine').text = \
                         '{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0'.format(calx, caly, calz)
 
-        xml_indent(root)
+        _xml_indent(root)
         tree = ET.ElementTree(root)
         tree.write(os.path.splitext(self.filename)[0] + ".xml", xml_declaration=True, encoding='utf-8', method="xml")
 
@@ -423,7 +423,7 @@ class BdvWriter:
         self.setup_id_present[itime][isetup] = True
 
     def close(self):
-        """Close the file object."""
+        """Save changes and close the H5 file."""
         self.file_object.close()
 
 
@@ -596,7 +596,7 @@ class BdvEditor:
         Each column represents coordinate unit vectors after the transformation.
         The last column represents translation in (x,y,z).
         Todo: Not tested yet!
-        
+
         Parameters:
         -----------
             time: int
@@ -635,17 +635,17 @@ class BdvEditor:
             pass
 
     def finalize(self):
-        """Finalize the H5 and XML files."""
+        """Finalize the H5 and XML files: save changes and close them."""
         if self._file_object_h5 is not None:
             self._file_object_h5.close()
         if self._root is not None:
-            xml_indent(self._root)
+            _xml_indent(self._root)
             tree = ET.ElementTree(self._root)
             shutil.copy(self.filename_xml, self.filename_xml + '~1') # backup the previous XML file.
             tree.write(self.filename_xml, xml_declaration=True, encoding='utf-8', method="xml")
 
 
-def xml_indent(elem, level=0):
+def _xml_indent(elem, level=0):
     """Pretty printing function"""
     i = "\n" + level * "  "
     if len(elem):
@@ -654,7 +654,7 @@ def xml_indent(elem, level=0):
         if not elem.tail or not elem.tail.strip():
             elem.tail = i
         for elem in elem:
-            xml_indent(elem, level + 1)
+            _xml_indent(elem, level + 1)
         if not elem.tail or not elem.tail.strip():
             elem.tail = i
     else:

@@ -421,7 +421,7 @@ class BdvWriter:
                     ET.SubElement(vt, &#39;affine&#39;).text = \
                         &#39;{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0&#39;.format(calx, caly, calz)
 
-        xml_indent(root)
+        _xml_indent(root)
         tree = ET.ElementTree(root)
         tree.write(os.path.splitext(self.filename)[0] + &#34;.xml&#34;, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)
 
@@ -451,7 +451,7 @@ class BdvWriter:
         self.setup_id_present[itime][isetup] = True
 
     def close(self):
-        &#34;&#34;&#34;Close the file object.&#34;&#34;&#34;
+        &#34;&#34;&#34;Save changes and close the H5 file.&#34;&#34;&#34;
         self.file_object.close()
 
 
@@ -623,6 +623,8 @@ class BdvEditor:
         &#34;&#34;&#34;&#34; Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
         Each column represents coordinate unit vectors after the transformation.
         The last column represents translation in (x,y,z).
+        Todo: Not tested yet!
+
         Parameters:
         -----------
             time: int
@@ -661,17 +663,17 @@ class BdvEditor:
             pass
 
     def finalize(self):
-        &#34;&#34;&#34;Finalize the H5 and XML files.&#34;&#34;&#34;
+        &#34;&#34;&#34;Finalize the H5 and XML files: save changes and close them.&#34;&#34;&#34;
         if self._file_object_h5 is not None:
             self._file_object_h5.close()
         if self._root is not None:
-            xml_indent(self._root)
+            _xml_indent(self._root)
             tree = ET.ElementTree(self._root)
             shutil.copy(self.filename_xml, self.filename_xml + &#39;~1&#39;) # backup the previous XML file.
             tree.write(self.filename_xml, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)
 
 
-def xml_indent(elem, level=0):
+def _xml_indent(elem, level=0):
     &#34;&#34;&#34;Pretty printing function&#34;&#34;&#34;
     i = &#34;\n&#34; + level * &#34;  &#34;
     if len(elem):
@@ -680,7 +682,7 @@ def xml_indent(elem, level=0):
         if not elem.tail or not elem.tail.strip():
             elem.tail = i
         for elem in elem:
-            xml_indent(elem, level + 1)
+            _xml_indent(elem, level + 1)
         if not elem.tail or not elem.tail.strip():
             elem.tail = i
     else:
@@ -693,35 +695,6 @@ def xml_indent(elem, level=0):
 <section>
 </section>
 <section>
-<h2 class="section-title" id="header-functions">Functions</h2>
-<dl>
-<dt id="npy2bdv.npy2bdv.xml_indent"><code class="name flex">
-<span>def <span class="ident">xml_indent</span></span>(<span>elem, level=0)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Pretty printing function</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def xml_indent(elem, level=0):
-    &#34;&#34;&#34;Pretty printing function&#34;&#34;&#34;
-    i = &#34;\n&#34; + level * &#34;  &#34;
-    if len(elem):
-        if not elem.text or not elem.text.strip():
-            elem.text = i + &#34;  &#34;
-        if not elem.tail or not elem.tail.strip():
-            elem.tail = i
-        for elem in elem:
-            xml_indent(elem, level + 1)
-        if not elem.tail or not elem.tail.strip():
-            elem.tail = i
-    else:
-        if level and (not elem.tail or not elem.tail.strip()):
-            elem.tail = i</code></pre>
-</details>
-</dd>
-</dl>
 </section>
 <section>
 <h2 class="section-title" id="header-classes">Classes</h2>
@@ -910,6 +883,8 @@ Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at
         &#34;&#34;&#34;&#34; Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
         Each column represents coordinate unit vectors after the transformation.
         The last column represents translation in (x,y,z).
+        Todo: Not tested yet!
+
         Parameters:
         -----------
             time: int
@@ -948,11 +923,11 @@ Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at
             pass
 
     def finalize(self):
-        &#34;&#34;&#34;Finalize the H5 and XML files.&#34;&#34;&#34;
+        &#34;&#34;&#34;Finalize the H5 and XML files: save changes and close them.&#34;&#34;&#34;
         if self._file_object_h5 is not None:
             self._file_object_h5.close()
         if self._root is not None:
-            xml_indent(self._root)
+            _xml_indent(self._root)
             tree = ET.ElementTree(self._root)
             shutil.copy(self.filename_xml, self.filename_xml + &#39;~1&#39;) # backup the previous XML file.
             tree.write(self.filename_xml, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)</code></pre>
@@ -966,8 +941,8 @@ Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at
 <div class="desc"><p>" Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
 Each column represents coordinate unit vectors after the transformation.
 The last column represents translation in (x,y,z).
-Parameters:</p>
-<hr>
+Todo: Not tested yet!</p>
+<h2 id="parameters">Parameters:</h2>
 <pre><code>time: int
     Time index, &gt;=0.
 isetup: int
@@ -985,6 +960,8 @@ name_affine: str, optional
     &#34;&#34;&#34;&#34; Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
     Each column represents coordinate unit vectors after the transformation.
     The last column represents translation in (x,y,z).
+    Todo: Not tested yet!
+
     Parameters:
     -----------
         time: int
@@ -1081,17 +1058,17 @@ ilevel: int
 <span>def <span class="ident">finalize</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Finalize the H5 and XML files.</p></div>
+<div class="desc"><p>Finalize the H5 and XML files: save changes and close them.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def finalize(self):
-    &#34;&#34;&#34;Finalize the H5 and XML files.&#34;&#34;&#34;
+    &#34;&#34;&#34;Finalize the H5 and XML files: save changes and close them.&#34;&#34;&#34;
     if self._file_object_h5 is not None:
         self._file_object_h5.close()
     if self._root is not None:
-        xml_indent(self._root)
+        _xml_indent(self._root)
         tree = ET.ElementTree(self._root)
         shutil.copy(self.filename_xml, self.filename_xml + &#39;~1&#39;) # backup the previous XML file.
         tree.write(self.filename_xml, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)</code></pre>
@@ -1656,7 +1633,7 @@ Block size can be larger than stack dimension.</p></div>
                     ET.SubElement(vt, &#39;affine&#39;).text = \
                         &#39;{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0&#39;.format(calx, caly, calz)
 
-        xml_indent(root)
+        _xml_indent(root)
         tree = ET.ElementTree(root)
         tree.write(os.path.splitext(self.filename)[0] + &#34;.xml&#34;, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)
 
@@ -1686,7 +1663,7 @@ Block size can be larger than stack dimension.</p></div>
         self.setup_id_present[itime][isetup] = True
 
     def close(self):
-        &#34;&#34;&#34;Close the file object.&#34;&#34;&#34;
+        &#34;&#34;&#34;Save changes and close the H5 file.&#34;&#34;&#34;
         self.file_object.close()</code></pre>
 </details>
 <h3>Methods</h3>
@@ -1863,13 +1840,13 @@ exposure_units: str, optional
 <span>def <span class="ident">close</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Close the file object.</p></div>
+<div class="desc"><p>Save changes and close the H5 file.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def close(self):
-    &#34;&#34;&#34;Close the file object.&#34;&#34;&#34;
+    &#34;&#34;&#34;Save changes and close the H5 file.&#34;&#34;&#34;
     self.file_object.close()</code></pre>
 </details>
 </dd>
@@ -2031,7 +2008,7 @@ user_name: str, optional
                 ET.SubElement(vt, &#39;affine&#39;).text = \
                     &#39;{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0&#39;.format(calx, caly, calz)
 
-    xml_indent(root)
+    _xml_indent(root)
     tree = ET.ElementTree(root)
     tree.write(os.path.splitext(self.filename)[0] + &#34;.xml&#34;, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)</code></pre>
 </details>
@@ -2050,11 +2027,6 @@ user_name: str, optional
 <li><h3>Super-module</h3>
 <ul>
 <li><code><a title="npy2bdv" href="index.html">npy2bdv</a></code></li>
-</ul>
-</li>
-<li><h3><a href="#header-functions">Functions</a></h3>
-<ul class="">
-<li><code><a title="npy2bdv.npy2bdv.xml_indent" href="#npy2bdv.npy2bdv.xml_indent">xml_indent</a></code></li>
 </ul>
 </li>
 <li><h3><a href="#header-classes">Classes</a></h3>
