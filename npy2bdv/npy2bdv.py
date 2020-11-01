@@ -432,7 +432,8 @@ class BdvEditor:
 
     def __init__(self, filename):
         """
-        Class for reading and editing existing H5/XML file pairs. Editing occurs in-place!
+        Class for reading and editing existing H5/XML file pairs.
+        Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at your own risk.
 
         Parameters:
         -----------
@@ -577,22 +578,25 @@ class BdvEditor:
         accepted_keys = ['voxel_size', 'view_shape']
         assert key in accepted_keys, f"Key {key} not recognized, must be one of: {accepted_keys}."
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
-        with open(self.filename_xml, 'r') as file:
-            root = ET.parse(file).getroot()
-            if key == 'voxel_size':
-                path = "./SequenceDescription/ViewSetups/ViewSetup/voxelSize/size"
-            elif key == 'view_shape':
-                path = "./SequenceDescription/ViewSetups/ViewSetup/size"
-            props_list = root.findall(path)
-            # Todo: possible bug here, if the views are not in setupID order.
-            assert 0 <= isetup < len(props_list), f"Setup index {isetup} out of range 0..{len(props_list)-1}"
-            value = tuple([float(val) for val in props_list[isetup].text.split()])
-            return value
+        self._get_xml_root()
+        if key == 'voxel_size':
+            path = "./SequenceDescription/ViewSetups/ViewSetup/voxelSize/size"
+            type_caster = float
+        elif key == 'view_shape':
+            path = "./SequenceDescription/ViewSetups/ViewSetup/size"
+            type_caster = int
+        props_list = self._root.findall(path)
+        # Todo: possible bug here, if the views are not in setupID order.
+        assert 0 <= isetup < len(props_list), f"Setup index {isetup} out of range 0..{len(props_list)-1}"
+        value = tuple([type_caster(val) for val in props_list[isetup].text.split()])
+        return value
 
     def append_affine(self, time, isetup, m_affine, name_affine="Appended affine transformation using npy2bdv."):
         """" Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
         Each column represents coordinate unit vectors after the transformation.
         The last column represents translation in (x,y,z).
+        Todo: Not tested yet!
+        
         Parameters:
         -----------
             time: int
@@ -630,7 +634,7 @@ class BdvEditor:
         else:
             pass
 
-    def close(self):
+    def finalize(self):
         """Finalize the H5 and XML files."""
         if self._file_object_h5 is not None:
             self._file_object_h5.close()

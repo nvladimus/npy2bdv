@@ -23,8 +23,8 @@ class TestReadWrite(unittest.TestCase):
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
 
-        self.NZ, self.NY, self.NX = 4, 65, 65 # XY dims must be odd to get nominal 65535 peak value.
-        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 3, 4, 5, 4
+        self.NZ, self.NY, self.NX = 8, 35, 35 # XY dims must be odd to get nominal 65535 peak value.
+        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 4, 6, 4
         
         self.stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
         for z in range(self.NZ):
@@ -52,13 +52,13 @@ class TestReadWrite(unittest.TestCase):
     def test_range_uint16(self):
         """Check if the reader imports full uint16 range correctly"""
         assert os.path.exists(self.fname), f'File {self.fname} not found.'
-        reader = npy2bdv.BdvEditor(self.fname)
+        editor = npy2bdv.BdvEditor(self.fname)
         for t in range(self.N_T):
             for i_ch in range(self.N_CH):
                 for i_illum in range(self.N_ILL):
                     for i_tile in range(self.N_TILES):
                         for i_angle in range(self.N_ANGLES):
-                            view = reader.read_view(time=t,
+                            view = editor.read_view(time=t,
                                                     channel=i_ch,
                                                     illumination=i_illum,
                                                     tile=i_tile,
@@ -66,29 +66,29 @@ class TestReadWrite(unittest.TestCase):
                             self.assertTrue(view.min() >= 0, f"Min() value incorrect: {view.min()}")
                             self.assertTrue(view.max() == 65535, f"Max() value incorrect: {view.max()}")
                             self.assertTrue((view == self.stack).all(), "Written stack differs from the loaded stack.")
-        reader.close()
+        editor.finalize()
 
     def test_view_properties(self):
         """"BdvReader(): does the meta-info in XML file have expected values?"""
         assert os.path.exists(self.fname), f'File {self.fname} not found.'
-        reader = npy2bdv.BdvEditor(self.fname)
+        editor = npy2bdv.BdvEditor(self.fname)
         for i_ch in range(self.N_CH):
             for i_illum in range(self.N_ILL):
                 for i_tile in range(self.N_TILES):
                     for i_angle in range(self.N_ANGLES):
-                        vox_size = reader.get_view_property("voxel_size",
+                        vox_size = editor.get_view_property("voxel_size",
                                                             channel=i_ch,
                                                             illumination=i_illum,
                                                             tile=i_tile,
                                                             angle=i_angle)
-                        view_shape = reader.get_view_property("view_shape",
+                        view_shape = editor.get_view_property("view_shape",
                                                               channel=i_ch,
                                                               illumination=i_illum,
                                                               tile=i_tile,
                                                               angle=i_angle)
                         self.assertEqual(vox_size, (1, 1, 4), f"Voxel size is incorrect: {vox_size}.")
                         self.assertEqual(view_shape, self.stack.shape[::-1], f"View shape incorrect: {view_shape}.")
-        reader.close()
+        editor.finalize()
 
     def test_attribute_counts(self):
         """"BdvEditor(): do the attribute total counts have expected values?"""
@@ -100,10 +100,57 @@ class TestReadWrite(unittest.TestCase):
         self.assertEqual(nchannels, self.N_CH, f"nchannels is incorrect: {nchannels}.")
         self.assertEqual(ntiles, self.N_TILES, f"ntiles is incorrect: {ntiles}.")
         self.assertEqual(nangles, self.N_ANGLES, f"nangles is incorrect: {nangles}.")
+        editor.finalize()
 
-    @unittest.skip
     def test_cropping(self):
-        """"BdvEditor(): crop a view and check if new H5 view size matches the XML view size. Todo"""
+        """"BdvEditor: crop a view in-place for all time points,
+         and check if new H5 view size matches the XML view size."""
+        editor = npy2bdv.BdvEditor(self.fname)
+        for t in range(self.N_T):
+            for i_ch in range(self.N_CH):
+                for i_illum in range(self.N_ILL):
+                    for i_tile in range(self.N_TILES):
+                        for i_angle in range(self.N_ANGLES):
+                            h5_shape_before = editor.read_view(time=t,
+                                                               channel=i_ch,
+                                                               illumination=i_illum,
+                                                               tile=i_tile,
+                                                               angle=i_angle).shape
+                            xml_shape_before = editor.get_view_property(key='view_shape',
+                                                                        channel=i_ch,
+                                                                        illumination=i_illum,
+                                                                        tile=i_tile,
+                                                                        angle=i_angle)
+                            editor.crop_view(bbox_xyz=((3, -3), (2, -2), (1, -1)),
+                                             channel=i_ch,
+                                             illumination=i_illum,
+                                             tile=i_tile,
+                                             angle=i_angle)
+                            h5_shape_after = editor.read_view(time=t,
+                                                              channel=i_ch,
+                                                              illumination=i_illum,
+                                                              tile=i_tile,
+                                                              angle=i_angle).shape
+                            xml_shape_after = editor.get_view_property(key='view_shape',
+                                                                        channel=i_ch,
+                                                                        illumination=i_illum,
+                                                                        tile=i_tile,
+                                                                        angle=i_angle)
+                            h5_shape_expected = tuple(np.subtract(h5_shape_before, (2, 4, 6)))
+                            xml_shape_expected = tuple(np.subtract(xml_shape_before[::-1], (2, 4, 6)))
+                            self.assertEqual(h5_shape_before, xml_shape_before[::-1],
+                                             f"View shapes before crop mismatch between H5 and XML:"
+                                             f" {h5_shape_before} vs {xml_shape_before[::-1]}")
+                            self.assertEqual(h5_shape_after, xml_shape_after[::-1],
+                                             f"View shapes after crop mismatch between H5 and XML:"
+                                             f" {h5_shape_after} vs {xml_shape_after[::-1]}")
+                            self.assertEqual(h5_shape_after, h5_shape_expected,
+                                             f"View shapes  mismatch in H5 before and after crop:"
+                                             f"{h5_shape_after} vs {h5_shape_expected}")
+                            self.assertEqual(xml_shape_after[::-1], xml_shape_expected,
+                                             f"View shapes  mismatch in XML before and after crop:"
+                                             f"{xml_shape_after[::-1]} vs {xml_shape_expected}")
+        editor.finalize()
 
     def tearDown(self) -> None:
         if os.path.exists(self.test_dir):

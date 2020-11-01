@@ -34,7 +34,7 @@ import h5py
 import numpy as np
 from xml.etree import ElementTree as ET
 import skimage.transform
-
+import shutil
 
 class BdvWriter:
     __version__ = &#34;2020.10&#34;
@@ -43,7 +43,8 @@ class BdvWriter:
                  subsamp=((1, 1, 1),),
                  blockdim=((4, 256, 256),),
                  compression=None,
-                 nilluminations=1, nchannels=1, ntiles=1, nangles=1):
+                 nilluminations=1, nchannels=1, ntiles=1, nangles=1,
+                 overwrite=False):
         &#34;&#34;&#34;Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.
 
         Parameters:
@@ -61,6 +62,8 @@ class BdvWriter:
             ntiles: int
             nangles: int
                 Number of view attributes, &gt;=1.
+            overwrite: boolean
+                If True, overwrite existing file. Default False.
 
         .. note::
         ------
@@ -100,8 +103,11 @@ class BdvWriter:
         self.compression = compression
         self.filename = filename
         if os.path.exists(self.filename):
-            os.remove(self.filename)
-            print(&#34;Warning: H5 file already exists, overwriting!&#34;)
+            if overwrite:
+                os.remove(self.filename)
+                print(&#34;Warning: H5 file already exists, overwriting.&#34;)
+            else:
+                raise FileExistsError(f&#34;File {self.filename} already exists.&#34;)
         self.file_object = h5py.File(filename, &#39;a&#39;)
         self._write_setups_header()
         self.virtual_stacks = False
@@ -415,26 +421,9 @@ class BdvWriter:
                     ET.SubElement(vt, &#39;affine&#39;).text = \
                         &#39;{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0&#39;.format(calx, caly, calz)
 
-        self._xml_indent(root)
+        xml_indent(root)
         tree = ET.ElementTree(root)
         tree.write(os.path.splitext(self.filename)[0] + &#34;.xml&#34;, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)
-        return
-
-    def _xml_indent(self, elem, level=0):
-        &#34;&#34;&#34;Pretty printing function&#34;&#34;&#34;
-        i = &#34;\n&#34; + level * &#34;  &#34;
-        if len(elem):
-            if not elem.text or not elem.text.strip():
-                elem.text = i + &#34;  &#34;
-            if not elem.tail or not elem.tail.strip():
-                elem.tail = i
-            for elem in elem:
-                self._xml_indent(elem, level + 1)
-            if not elem.tail or not elem.tail.strip():
-                elem.tail = i
-        else:
-            if level and (not elem.tail or not elem.tail.strip()):
-                elem.tail = i
 
     def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
         &#34;&#34;&#34;Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
@@ -466,54 +455,237 @@ class BdvWriter:
         self.file_object.close()
 
 
-class BdvReader:
-    __version__ = &#34;2020.06.25&#34;
+class BdvEditor:
+    __version__ = &#34;2020.10&#34;
 
-    def __init__(self, filename_h5):
+    def __init__(self, filename):
         &#34;&#34;&#34;
-        Class for reading a BigDataViewer/BigStitcher HDF5 file into numpy array.
+        Class for reading and editing existing H5/XML file pairs.
+        Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at your own risk.
 
         Parameters:
         -----------
-            filename_h5: string,
-                Path to the HDF5 file.
+            filename: string,
+                Path to either .h5 or .xml file. The other file of the pair must be present
+                in the same folder, by convention.
         &#34;&#34;&#34;
         self._fmt = &#39;t{:05d}/s{:02d}/{}&#39;
-        assert os.path.exists(filename_h5), &#34;Error: HDF5 file not found&#34;
-        self._file_object = h5py.File(filename_h5, &#39;r&#39;)
+        if filename[-2:] == &#39;h5&#39;:
+            self.filename_h5 = filename
+            self.filename_xml = filename[:-2] + &#39;xml&#39;
+        elif filename[-3:] == &#39;xml&#39;:
+            self.filename_h5 = filename[:-3] + &#39;h5&#39;
+            self.filename_xml = filename
+        assert os.path.exists(self.filename_h5), f&#34;Error: {self.filename_h5} file not found&#34;
+        assert os.path.exists(self.filename_xml), f&#34;Error: {self.filename_xml} file not found&#34;
+        self._file_object_h5 = h5py.File(self.filename_h5, &#39;r+&#39;)
+        self._root = None
+        self.ntimes, self.nilluminations, self.nchannels, self.ntiles, self.nangles = self.get_attribute_count()
+        self.nsetups = self.nilluminations * self.nchannels * self.ntiles * self.nangles
 
-    def set_path_h5(self, filename_h5):
-        &#34;&#34;&#34;Set the file path to HDF5 file. If another file was already open, it closes it before proceeding&#34;&#34;&#34;
-        assert os.path.exists(filename_h5), &#34;Error: HDF5 file not found&#34;
-        if self._file_object:
-            self._file_object.close()
-        self._file_object = h5py.File(filename_h5, &#39;r&#39;)
+    def get_attribute_count(self):
+        &#34;&#34;&#34; Get the number of view attributes: time points, illuminations, channels, tiles, angles, using the XML file.
+        Returns:
+        --------
+        (ntimes, nilluminations, nchannels, ntiles, nangle)
+         &#34;&#34;&#34;
+        with open(self.filename_xml, &#39;r&#39;) as file:
+            root = ET.parse(file).getroot()
+            element = root.find(&#34;./SequenceDescription/Timepoints[@type=&#39;range&#39;]&#34;)
+            nt = int(element.find(&#39;last&#39;).text) - int(element.find(&#39;first&#39;).text) + 1 if element else 0
+            ni = len(root.findall(&#34;./SequenceDescription/ViewSetups/Attributes[@name=&#39;illumination&#39;]/Illumination&#34;))
+            nch = len(root.findall(&#34;./SequenceDescription/ViewSetups/Attributes[@name=&#39;channel&#39;]/Channel&#34;))
+            ntiles = len(root.findall(&#34;./SequenceDescription/ViewSetups/Attributes[@name=&#39;tile&#39;]/Tile&#34;))
+            nang = len(root.findall(&#34;./SequenceDescription/ViewSetups/Attributes[@name=&#39;angle&#39;]/Angle&#34;))
+        return nt, ni, nch, ntiles, nang
 
-    def read_view(self, time=0, isetup=0, ilevel=0):
-        &#34;&#34;&#34;Read a view (stack) specified by its time, setup ID, and downsampling level into numpy array (uint16).
+    def read_view(self, time=0, illumination=0, channel=0, tile=0, angle=0, ilevel=0):
+        &#34;&#34;&#34;Read a view (stack) specified by its time, attributes, and downsampling level into numpy array (uint16).
+        Todo: implement detection of missing views using XML file, return None.
 
         Parameters:
         -----------
             time: int
                 Index of time point (default 0).
-            isetup: int
-                Index of setup ID (default 0)
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, &gt;= 0.
             ilevel: int
-             Level of subsampling, if available (default 0, no subsampling)
+                Level of subsampling, if available (default 0, no subsampling)
 
         Returns:
         --------
             dataset: numpy array (dim=3, dtype=uint16)&#34;&#34;&#34;
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
         group_name = self._fmt.format(time, isetup, ilevel)
-        if self._file_object:
-            dataset = self._file_object[group_name][&#34;cells&#34;].value.astype(&#39;uint16&#39;)
+        if self._file_object_h5:
+            dataset = self._file_object_h5[group_name][&#34;cells&#34;][()].astype(&#39;uint16&#39;)
             return dataset
         else:
             raise ValueError(&#39;File object is None&#39;)
 
-    def close(self):
-        &#34;&#34;&#34;Close the file object.&#34;&#34;&#34;
-        self._file_object.close()</code></pre>
+    def crop_view(self, bbox_xyz=((1, -1), (1, -1), None), illumination=0, channel=0, tile=0, angle=0, ilevel=0):
+        &#34;&#34;&#34;Crop a view in-place, both in H5 and XML files, for all time points.
+
+        Parameters:
+        -----------
+            bbox_xyz: tuple of int
+                Bounding box of the crop. Default `((1, -1), (2, -2), None)` crops to view[1:-1, 2:-2, :].
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, &gt;= 0.
+            ilevel: int
+                Level of subsampling, if available (default 0, no subsampling)
+        &#34;&#34;&#34;
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        if self._file_object_h5:
+            for time in range(self.ntimes):
+                group_name = self._fmt.format(time, isetup, ilevel)
+                view_dataset = self._file_object_h5[group_name][&#34;cells&#34;]
+                view_arr = view_dataset[()]
+                if bbox_xyz[0]:
+                    view_arr = view_arr[:, :, slice(*bbox_xyz[0])]
+                if bbox_xyz[1]:
+                    view_arr = view_arr[:, slice(*bbox_xyz[1]), :]
+                if bbox_xyz[2]:
+                    view_arr = view_arr[slice(*bbox_xyz[2]), :, :]
+                view_dataset.resize(view_arr.shape)
+                view_dataset = view_arr
+                self._file_object_h5.flush()
+        else:
+            raise FileNotFoundError(self.filename_h5)
+        # Edit the XML file as well.
+        with open(self.filename_xml, &#39;r+&#39;) as file:
+            self._get_xml_root()
+            for elem in self._root.findall(&#34;./SequenceDescription/ViewSetups/ViewSetup&#34;):
+                elem_id = elem.find(&#34;id&#34;)
+                if int(elem_id.text) == isetup:
+                    nz, ny, nx = tuple(view_arr.shape)
+                    elem_size = elem.find(&#34;size&#34;)
+                    elem_size.text = &#39;{} {} {}&#39;.format(nx, ny, nz)
+
+    def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
+        &#34;&#34;&#34;Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
+
+        Parameters:
+        -----------
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+
+        Returns:
+        --------
+            setup_id: int, &gt;=0 (first setup)
+            &#34;&#34;&#34;
+        setup_id_matrix = np.arange(self.nsetups)
+        setup_id_matrix = setup_id_matrix.reshape((self.nilluminations, self.nchannels, self.ntiles, self.nangles))
+        setup_id = setup_id_matrix[illumination, channel, tile, angle]
+        return setup_id
+
+    def get_view_property(self, key, illumination=0, channel=0, tile=0, angle=0) -&gt; tuple:
+        &#34;&#34;&#34;&#34;Get property of a vew setup from XML file. No time information required, since the setups are fixed.
+        Tuples are returned in (x, y, z) order, as in the XML file.
+        Parameters:
+        -----------
+            key: str
+                Name of the property: &#39;voxel_size&#39; | &#39;view_shape&#39;
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, &gt;= 0.
+        Returns:
+        --------
+            Value of the property, a tuple.
+        &#34;&#34;&#34;
+        accepted_keys = [&#39;voxel_size&#39;, &#39;view_shape&#39;]
+        assert key in accepted_keys, f&#34;Key {key} not recognized, must be one of: {accepted_keys}.&#34;
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        self._get_xml_root()
+        if key == &#39;voxel_size&#39;:
+            path = &#34;./SequenceDescription/ViewSetups/ViewSetup/voxelSize/size&#34;
+            type_caster = float
+        elif key == &#39;view_shape&#39;:
+            path = &#34;./SequenceDescription/ViewSetups/ViewSetup/size&#34;
+            type_caster = int
+        props_list = self._root.findall(path)
+        # Todo: possible bug here, if the views are not in setupID order.
+        assert 0 &lt;= isetup &lt; len(props_list), f&#34;Setup index {isetup} out of range 0..{len(props_list)-1}&#34;
+        value = tuple([type_caster(val) for val in props_list[isetup].text.split()])
+        return value
+
+    def append_affine(self, time, isetup, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;):
+        &#34;&#34;&#34;&#34; Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+        Each column represents coordinate unit vectors after the transformation.
+        The last column represents translation in (x,y,z).
+        Parameters:
+        -----------
+            time: int
+                Time index, &gt;=0.
+            isetup: int
+                Setup index, &gt;=0.
+            m_affine: numpy array of shape (3,4)
+                Coefficients of affine transformation matrix (m00, m01, ...)
+            name_affine: str, optional
+                Name of the affine transformation.
+            &#34;&#34;&#34;
+        self._get_xml_root()
+        assert m_affine.shape == (3,4), &#34;m_affine must be a numpy array of shape (3,4)&#34;
+        found = False
+        for node in self._root.findall(&#39;./ViewRegistrations/ViewRegistration&#39;):
+            if int(node.attrib[&#39;setup&#39;]) == isetup and int(node.attrib[&#39;timepoint&#39;]) == time:
+                found = True
+                break
+        assert found, f&#39;Node not found: &lt;ViewRegistration setup=&#34;{isetup}&#34; timepoint=&#34;{time}&#34;&gt;&#39;
+        vt = ET.SubElement(node, &#39;ViewTransform&#39;)
+        vt.set(&#39;type&#39;, &#39;affine&#39;)
+        ET.SubElement(vt, &#39;Name&#39;).text = name_affine
+        n_prec = 6
+        mx_string = np.array2string(m_affine.flatten(), separator=&#39; &#39;,
+                                    precision=n_prec, floatmode=&#39;fixed&#39;,
+                                    max_line_width=(n_prec + 6) * 4)
+        ET.SubElement(vt, &#39;affine&#39;).text = mx_string[1:-1].strip()
+
+    def _get_xml_root(self):
+        &#34;&#34;&#34;Load the meta-information information from XML header file&#34;&#34;&#34;
+        assert os.path.exists(self.filename_xml), f&#34;Error: {self.filename_xml} file not found&#34;
+        if self._root is None:
+            with open(self.filename_xml, &#39;r&#39;) as file:
+                self._root = ET.parse(file).getroot()
+        else:
+            pass
+
+    def finalize(self):
+        &#34;&#34;&#34;Finalize the H5 and XML files.&#34;&#34;&#34;
+        if self._file_object_h5 is not None:
+            self._file_object_h5.close()
+        if self._root is not None:
+            xml_indent(self._root)
+            tree = ET.ElementTree(self._root)
+            shutil.copy(self.filename_xml, self.filename_xml + &#39;~1&#39;) # backup the previous XML file.
+            tree.write(self.filename_xml, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)
+
+
+def xml_indent(elem, level=0):
+    &#34;&#34;&#34;Pretty printing function&#34;&#34;&#34;
+    i = &#34;\n&#34; + level * &#34;  &#34;
+    if len(elem):
+        if not elem.text or not elem.text.strip():
+            elem.text = i + &#34;  &#34;
+        if not elem.tail or not elem.tail.strip():
+            elem.tail = i
+        for elem in elem:
+            xml_indent(elem, level + 1)
+        if not elem.tail or not elem.tail.strip():
+            elem.tail = i
+    else:
+        if level and (not elem.tail or not elem.tail.strip()):
+            elem.tail = i</code></pre>
 </details>
 </section>
 <section>
@@ -521,101 +693,511 @@ class BdvReader:
 <section>
 </section>
 <section>
+<h2 class="section-title" id="header-functions">Functions</h2>
+<dl>
+<dt id="npy2bdv.npy2bdv.xml_indent"><code class="name flex">
+<span>def <span class="ident">xml_indent</span></span>(<span>elem, level=0)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Pretty printing function</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def xml_indent(elem, level=0):
+    &#34;&#34;&#34;Pretty printing function&#34;&#34;&#34;
+    i = &#34;\n&#34; + level * &#34;  &#34;
+    if len(elem):
+        if not elem.text or not elem.text.strip():
+            elem.text = i + &#34;  &#34;
+        if not elem.tail or not elem.tail.strip():
+            elem.tail = i
+        for elem in elem:
+            xml_indent(elem, level + 1)
+        if not elem.tail or not elem.tail.strip():
+            elem.tail = i
+    else:
+        if level and (not elem.tail or not elem.tail.strip()):
+            elem.tail = i</code></pre>
+</details>
+</dd>
+</dl>
 </section>
 <section>
 <h2 class="section-title" id="header-classes">Classes</h2>
 <dl>
-<dt id="npy2bdv.npy2bdv.BdvReader"><code class="flex name class">
-<span>class <span class="ident">BdvReader</span></span>
-<span>(</span><span>filename_h5)</span>
+<dt id="npy2bdv.npy2bdv.BdvEditor"><code class="flex name class">
+<span>class <span class="ident">BdvEditor</span></span>
+<span>(</span><span>filename)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Class for reading a BigDataViewer/BigStitcher HDF5 file into numpy array.</p>
+<div class="desc"><p>Class for reading and editing existing H5/XML file pairs.
+Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at your own risk.</p>
 <h2 id="parameters">Parameters:</h2>
-<pre><code>filename_h5: string,
-    Path to the HDF5 file.
+<pre><code>filename: string,
+    Path to either .h5 or .xml file. The other file of the pair must be present
+    in the same folder, by convention.
 </code></pre></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">class BdvReader:
-    __version__ = &#34;2020.06.25&#34;
+<pre><code class="python">class BdvEditor:
+    __version__ = &#34;2020.10&#34;
 
-    def __init__(self, filename_h5):
+    def __init__(self, filename):
         &#34;&#34;&#34;
-        Class for reading a BigDataViewer/BigStitcher HDF5 file into numpy array.
+        Class for reading and editing existing H5/XML file pairs.
+        Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at your own risk.
 
         Parameters:
         -----------
-            filename_h5: string,
-                Path to the HDF5 file.
+            filename: string,
+                Path to either .h5 or .xml file. The other file of the pair must be present
+                in the same folder, by convention.
         &#34;&#34;&#34;
         self._fmt = &#39;t{:05d}/s{:02d}/{}&#39;
-        assert os.path.exists(filename_h5), &#34;Error: HDF5 file not found&#34;
-        self._file_object = h5py.File(filename_h5, &#39;r&#39;)
+        if filename[-2:] == &#39;h5&#39;:
+            self.filename_h5 = filename
+            self.filename_xml = filename[:-2] + &#39;xml&#39;
+        elif filename[-3:] == &#39;xml&#39;:
+            self.filename_h5 = filename[:-3] + &#39;h5&#39;
+            self.filename_xml = filename
+        assert os.path.exists(self.filename_h5), f&#34;Error: {self.filename_h5} file not found&#34;
+        assert os.path.exists(self.filename_xml), f&#34;Error: {self.filename_xml} file not found&#34;
+        self._file_object_h5 = h5py.File(self.filename_h5, &#39;r+&#39;)
+        self._root = None
+        self.ntimes, self.nilluminations, self.nchannels, self.ntiles, self.nangles = self.get_attribute_count()
+        self.nsetups = self.nilluminations * self.nchannels * self.ntiles * self.nangles
 
-    def set_path_h5(self, filename_h5):
-        &#34;&#34;&#34;Set the file path to HDF5 file. If another file was already open, it closes it before proceeding&#34;&#34;&#34;
-        assert os.path.exists(filename_h5), &#34;Error: HDF5 file not found&#34;
-        if self._file_object:
-            self._file_object.close()
-        self._file_object = h5py.File(filename_h5, &#39;r&#39;)
+    def get_attribute_count(self):
+        &#34;&#34;&#34; Get the number of view attributes: time points, illuminations, channels, tiles, angles, using the XML file.
+        Returns:
+        --------
+        (ntimes, nilluminations, nchannels, ntiles, nangle)
+         &#34;&#34;&#34;
+        with open(self.filename_xml, &#39;r&#39;) as file:
+            root = ET.parse(file).getroot()
+            element = root.find(&#34;./SequenceDescription/Timepoints[@type=&#39;range&#39;]&#34;)
+            nt = int(element.find(&#39;last&#39;).text) - int(element.find(&#39;first&#39;).text) + 1 if element else 0
+            ni = len(root.findall(&#34;./SequenceDescription/ViewSetups/Attributes[@name=&#39;illumination&#39;]/Illumination&#34;))
+            nch = len(root.findall(&#34;./SequenceDescription/ViewSetups/Attributes[@name=&#39;channel&#39;]/Channel&#34;))
+            ntiles = len(root.findall(&#34;./SequenceDescription/ViewSetups/Attributes[@name=&#39;tile&#39;]/Tile&#34;))
+            nang = len(root.findall(&#34;./SequenceDescription/ViewSetups/Attributes[@name=&#39;angle&#39;]/Angle&#34;))
+        return nt, ni, nch, ntiles, nang
 
-    def read_view(self, time=0, isetup=0, ilevel=0):
-        &#34;&#34;&#34;Read a view (stack) specified by its time, setup ID, and downsampling level into numpy array (uint16).
+    def read_view(self, time=0, illumination=0, channel=0, tile=0, angle=0, ilevel=0):
+        &#34;&#34;&#34;Read a view (stack) specified by its time, attributes, and downsampling level into numpy array (uint16).
+        Todo: implement detection of missing views using XML file, return None.
 
         Parameters:
         -----------
             time: int
                 Index of time point (default 0).
-            isetup: int
-                Index of setup ID (default 0)
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, &gt;= 0.
             ilevel: int
-             Level of subsampling, if available (default 0, no subsampling)
+                Level of subsampling, if available (default 0, no subsampling)
 
         Returns:
         --------
             dataset: numpy array (dim=3, dtype=uint16)&#34;&#34;&#34;
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
         group_name = self._fmt.format(time, isetup, ilevel)
-        if self._file_object:
-            dataset = self._file_object[group_name][&#34;cells&#34;].value.astype(&#39;uint16&#39;)
+        if self._file_object_h5:
+            dataset = self._file_object_h5[group_name][&#34;cells&#34;][()].astype(&#39;uint16&#39;)
             return dataset
         else:
             raise ValueError(&#39;File object is None&#39;)
 
-    def close(self):
-        &#34;&#34;&#34;Close the file object.&#34;&#34;&#34;
-        self._file_object.close()</code></pre>
+    def crop_view(self, bbox_xyz=((1, -1), (1, -1), None), illumination=0, channel=0, tile=0, angle=0, ilevel=0):
+        &#34;&#34;&#34;Crop a view in-place, both in H5 and XML files, for all time points.
+
+        Parameters:
+        -----------
+            bbox_xyz: tuple of int
+                Bounding box of the crop. Default `((1, -1), (2, -2), None)` crops to view[1:-1, 2:-2, :].
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, &gt;= 0.
+            ilevel: int
+                Level of subsampling, if available (default 0, no subsampling)
+        &#34;&#34;&#34;
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        if self._file_object_h5:
+            for time in range(self.ntimes):
+                group_name = self._fmt.format(time, isetup, ilevel)
+                view_dataset = self._file_object_h5[group_name][&#34;cells&#34;]
+                view_arr = view_dataset[()]
+                if bbox_xyz[0]:
+                    view_arr = view_arr[:, :, slice(*bbox_xyz[0])]
+                if bbox_xyz[1]:
+                    view_arr = view_arr[:, slice(*bbox_xyz[1]), :]
+                if bbox_xyz[2]:
+                    view_arr = view_arr[slice(*bbox_xyz[2]), :, :]
+                view_dataset.resize(view_arr.shape)
+                view_dataset = view_arr
+                self._file_object_h5.flush()
+        else:
+            raise FileNotFoundError(self.filename_h5)
+        # Edit the XML file as well.
+        with open(self.filename_xml, &#39;r+&#39;) as file:
+            self._get_xml_root()
+            for elem in self._root.findall(&#34;./SequenceDescription/ViewSetups/ViewSetup&#34;):
+                elem_id = elem.find(&#34;id&#34;)
+                if int(elem_id.text) == isetup:
+                    nz, ny, nx = tuple(view_arr.shape)
+                    elem_size = elem.find(&#34;size&#34;)
+                    elem_size.text = &#39;{} {} {}&#39;.format(nx, ny, nz)
+
+    def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
+        &#34;&#34;&#34;Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
+
+        Parameters:
+        -----------
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+
+        Returns:
+        --------
+            setup_id: int, &gt;=0 (first setup)
+            &#34;&#34;&#34;
+        setup_id_matrix = np.arange(self.nsetups)
+        setup_id_matrix = setup_id_matrix.reshape((self.nilluminations, self.nchannels, self.ntiles, self.nangles))
+        setup_id = setup_id_matrix[illumination, channel, tile, angle]
+        return setup_id
+
+    def get_view_property(self, key, illumination=0, channel=0, tile=0, angle=0) -&gt; tuple:
+        &#34;&#34;&#34;&#34;Get property of a vew setup from XML file. No time information required, since the setups are fixed.
+        Tuples are returned in (x, y, z) order, as in the XML file.
+        Parameters:
+        -----------
+            key: str
+                Name of the property: &#39;voxel_size&#39; | &#39;view_shape&#39;
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, &gt;= 0.
+        Returns:
+        --------
+            Value of the property, a tuple.
+        &#34;&#34;&#34;
+        accepted_keys = [&#39;voxel_size&#39;, &#39;view_shape&#39;]
+        assert key in accepted_keys, f&#34;Key {key} not recognized, must be one of: {accepted_keys}.&#34;
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        self._get_xml_root()
+        if key == &#39;voxel_size&#39;:
+            path = &#34;./SequenceDescription/ViewSetups/ViewSetup/voxelSize/size&#34;
+            type_caster = float
+        elif key == &#39;view_shape&#39;:
+            path = &#34;./SequenceDescription/ViewSetups/ViewSetup/size&#34;
+            type_caster = int
+        props_list = self._root.findall(path)
+        # Todo: possible bug here, if the views are not in setupID order.
+        assert 0 &lt;= isetup &lt; len(props_list), f&#34;Setup index {isetup} out of range 0..{len(props_list)-1}&#34;
+        value = tuple([type_caster(val) for val in props_list[isetup].text.split()])
+        return value
+
+    def append_affine(self, time, isetup, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;):
+        &#34;&#34;&#34;&#34; Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+        Each column represents coordinate unit vectors after the transformation.
+        The last column represents translation in (x,y,z).
+        Parameters:
+        -----------
+            time: int
+                Time index, &gt;=0.
+            isetup: int
+                Setup index, &gt;=0.
+            m_affine: numpy array of shape (3,4)
+                Coefficients of affine transformation matrix (m00, m01, ...)
+            name_affine: str, optional
+                Name of the affine transformation.
+            &#34;&#34;&#34;
+        self._get_xml_root()
+        assert m_affine.shape == (3,4), &#34;m_affine must be a numpy array of shape (3,4)&#34;
+        found = False
+        for node in self._root.findall(&#39;./ViewRegistrations/ViewRegistration&#39;):
+            if int(node.attrib[&#39;setup&#39;]) == isetup and int(node.attrib[&#39;timepoint&#39;]) == time:
+                found = True
+                break
+        assert found, f&#39;Node not found: &lt;ViewRegistration setup=&#34;{isetup}&#34; timepoint=&#34;{time}&#34;&gt;&#39;
+        vt = ET.SubElement(node, &#39;ViewTransform&#39;)
+        vt.set(&#39;type&#39;, &#39;affine&#39;)
+        ET.SubElement(vt, &#39;Name&#39;).text = name_affine
+        n_prec = 6
+        mx_string = np.array2string(m_affine.flatten(), separator=&#39; &#39;,
+                                    precision=n_prec, floatmode=&#39;fixed&#39;,
+                                    max_line_width=(n_prec + 6) * 4)
+        ET.SubElement(vt, &#39;affine&#39;).text = mx_string[1:-1].strip()
+
+    def _get_xml_root(self):
+        &#34;&#34;&#34;Load the meta-information information from XML header file&#34;&#34;&#34;
+        assert os.path.exists(self.filename_xml), f&#34;Error: {self.filename_xml} file not found&#34;
+        if self._root is None:
+            with open(self.filename_xml, &#39;r&#39;) as file:
+                self._root = ET.parse(file).getroot()
+        else:
+            pass
+
+    def finalize(self):
+        &#34;&#34;&#34;Finalize the H5 and XML files.&#34;&#34;&#34;
+        if self._file_object_h5 is not None:
+            self._file_object_h5.close()
+        if self._root is not None:
+            xml_indent(self._root)
+            tree = ET.ElementTree(self._root)
+            shutil.copy(self.filename_xml, self.filename_xml + &#39;~1&#39;) # backup the previous XML file.
+            tree.write(self.filename_xml, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)</code></pre>
 </details>
 <h3>Methods</h3>
 <dl>
-<dt id="npy2bdv.npy2bdv.BdvReader.close"><code class="name flex">
-<span>def <span class="ident">close</span></span>(<span>self)</span>
+<dt id="npy2bdv.npy2bdv.BdvEditor.append_affine"><code class="name flex">
+<span>def <span class="ident">append_affine</span></span>(<span>self, time, isetup, m_affine, name_affine='Appended affine transformation using npy2bdv.')</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Close the file object.</p></div>
+<div class="desc"><p>" Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+Each column represents coordinate unit vectors after the transformation.
+The last column represents translation in (x,y,z).
+Parameters:</p>
+<hr>
+<pre><code>time: int
+    Time index, &gt;=0.
+isetup: int
+    Setup index, &gt;=0.
+m_affine: numpy array of shape (3,4)
+    Coefficients of affine transformation matrix (m00, m01, ...)
+name_affine: str, optional
+    Name of the affine transformation.
+</code></pre></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def close(self):
-    &#34;&#34;&#34;Close the file object.&#34;&#34;&#34;
-    self._file_object.close()</code></pre>
+<pre><code class="python">def append_affine(self, time, isetup, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;):
+    &#34;&#34;&#34;&#34; Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+    Each column represents coordinate unit vectors after the transformation.
+    The last column represents translation in (x,y,z).
+    Parameters:
+    -----------
+        time: int
+            Time index, &gt;=0.
+        isetup: int
+            Setup index, &gt;=0.
+        m_affine: numpy array of shape (3,4)
+            Coefficients of affine transformation matrix (m00, m01, ...)
+        name_affine: str, optional
+            Name of the affine transformation.
+        &#34;&#34;&#34;
+    self._get_xml_root()
+    assert m_affine.shape == (3,4), &#34;m_affine must be a numpy array of shape (3,4)&#34;
+    found = False
+    for node in self._root.findall(&#39;./ViewRegistrations/ViewRegistration&#39;):
+        if int(node.attrib[&#39;setup&#39;]) == isetup and int(node.attrib[&#39;timepoint&#39;]) == time:
+            found = True
+            break
+    assert found, f&#39;Node not found: &lt;ViewRegistration setup=&#34;{isetup}&#34; timepoint=&#34;{time}&#34;&gt;&#39;
+    vt = ET.SubElement(node, &#39;ViewTransform&#39;)
+    vt.set(&#39;type&#39;, &#39;affine&#39;)
+    ET.SubElement(vt, &#39;Name&#39;).text = name_affine
+    n_prec = 6
+    mx_string = np.array2string(m_affine.flatten(), separator=&#39; &#39;,
+                                precision=n_prec, floatmode=&#39;fixed&#39;,
+                                max_line_width=(n_prec + 6) * 4)
+    ET.SubElement(vt, &#39;affine&#39;).text = mx_string[1:-1].strip()</code></pre>
 </details>
 </dd>
-<dt id="npy2bdv.npy2bdv.BdvReader.read_view"><code class="name flex">
-<span>def <span class="ident">read_view</span></span>(<span>self, time=0, isetup=0, ilevel=0)</span>
+<dt id="npy2bdv.npy2bdv.BdvEditor.crop_view"><code class="name flex">
+<span>def <span class="ident">crop_view</span></span>(<span>self, bbox_xyz=((1, -1), (1, -1), None), illumination=0, channel=0, tile=0, angle=0, ilevel=0)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Read a view (stack) specified by its time, setup ID, and downsampling level into numpy array (uint16).</p>
+<div class="desc"><p>Crop a view in-place, both in H5 and XML files, for all time points.</p>
+<h2 id="parameters">Parameters:</h2>
+<pre><code>bbox_xyz: tuple of int
+    Bounding box of the crop. Default `((1, -1), (2, -2), None)` crops to view[1:-1, 2:-2, :].
+illumination: int
+channel: int
+tile: int
+angle: int
+    Indices of the view attributes, &gt;= 0.
+ilevel: int
+    Level of subsampling, if available (default 0, no subsampling)
+</code></pre></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def crop_view(self, bbox_xyz=((1, -1), (1, -1), None), illumination=0, channel=0, tile=0, angle=0, ilevel=0):
+    &#34;&#34;&#34;Crop a view in-place, both in H5 and XML files, for all time points.
+
+    Parameters:
+    -----------
+        bbox_xyz: tuple of int
+            Bounding box of the crop. Default `((1, -1), (2, -2), None)` crops to view[1:-1, 2:-2, :].
+        illumination: int
+        channel: int
+        tile: int
+        angle: int
+            Indices of the view attributes, &gt;= 0.
+        ilevel: int
+            Level of subsampling, if available (default 0, no subsampling)
+    &#34;&#34;&#34;
+    isetup = self._determine_setup_id(illumination, channel, tile, angle)
+    if self._file_object_h5:
+        for time in range(self.ntimes):
+            group_name = self._fmt.format(time, isetup, ilevel)
+            view_dataset = self._file_object_h5[group_name][&#34;cells&#34;]
+            view_arr = view_dataset[()]
+            if bbox_xyz[0]:
+                view_arr = view_arr[:, :, slice(*bbox_xyz[0])]
+            if bbox_xyz[1]:
+                view_arr = view_arr[:, slice(*bbox_xyz[1]), :]
+            if bbox_xyz[2]:
+                view_arr = view_arr[slice(*bbox_xyz[2]), :, :]
+            view_dataset.resize(view_arr.shape)
+            view_dataset = view_arr
+            self._file_object_h5.flush()
+    else:
+        raise FileNotFoundError(self.filename_h5)
+    # Edit the XML file as well.
+    with open(self.filename_xml, &#39;r+&#39;) as file:
+        self._get_xml_root()
+        for elem in self._root.findall(&#34;./SequenceDescription/ViewSetups/ViewSetup&#34;):
+            elem_id = elem.find(&#34;id&#34;)
+            if int(elem_id.text) == isetup:
+                nz, ny, nx = tuple(view_arr.shape)
+                elem_size = elem.find(&#34;size&#34;)
+                elem_size.text = &#39;{} {} {}&#39;.format(nx, ny, nz)</code></pre>
+</details>
+</dd>
+<dt id="npy2bdv.npy2bdv.BdvEditor.finalize"><code class="name flex">
+<span>def <span class="ident">finalize</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Finalize the H5 and XML files.</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def finalize(self):
+    &#34;&#34;&#34;Finalize the H5 and XML files.&#34;&#34;&#34;
+    if self._file_object_h5 is not None:
+        self._file_object_h5.close()
+    if self._root is not None:
+        xml_indent(self._root)
+        tree = ET.ElementTree(self._root)
+        shutil.copy(self.filename_xml, self.filename_xml + &#39;~1&#39;) # backup the previous XML file.
+        tree.write(self.filename_xml, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)</code></pre>
+</details>
+</dd>
+<dt id="npy2bdv.npy2bdv.BdvEditor.get_attribute_count"><code class="name flex">
+<span>def <span class="ident">get_attribute_count</span></span>(<span>self)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Get the number of view attributes: time points, illuminations, channels, tiles, angles, using the XML file.
+Returns:</p>
+<hr>
+<p>(ntimes, nilluminations, nchannels, ntiles, nangle)</p></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def get_attribute_count(self):
+    &#34;&#34;&#34; Get the number of view attributes: time points, illuminations, channels, tiles, angles, using the XML file.
+    Returns:
+    --------
+    (ntimes, nilluminations, nchannels, ntiles, nangle)
+     &#34;&#34;&#34;
+    with open(self.filename_xml, &#39;r&#39;) as file:
+        root = ET.parse(file).getroot()
+        element = root.find(&#34;./SequenceDescription/Timepoints[@type=&#39;range&#39;]&#34;)
+        nt = int(element.find(&#39;last&#39;).text) - int(element.find(&#39;first&#39;).text) + 1 if element else 0
+        ni = len(root.findall(&#34;./SequenceDescription/ViewSetups/Attributes[@name=&#39;illumination&#39;]/Illumination&#34;))
+        nch = len(root.findall(&#34;./SequenceDescription/ViewSetups/Attributes[@name=&#39;channel&#39;]/Channel&#34;))
+        ntiles = len(root.findall(&#34;./SequenceDescription/ViewSetups/Attributes[@name=&#39;tile&#39;]/Tile&#34;))
+        nang = len(root.findall(&#34;./SequenceDescription/ViewSetups/Attributes[@name=&#39;angle&#39;]/Angle&#34;))
+    return nt, ni, nch, ntiles, nang</code></pre>
+</details>
+</dd>
+<dt id="npy2bdv.npy2bdv.BdvEditor.get_view_property"><code class="name flex">
+<span>def <span class="ident">get_view_property</span></span>(<span>self, key, illumination=0, channel=0, tile=0, angle=0) ‑> tuple</span>
+</code></dt>
+<dd>
+<div class="desc"><p>"Get property of a vew setup from XML file. No time information required, since the setups are fixed.
+Tuples are returned in (x, y, z) order, as in the XML file.
+Parameters:</p>
+<hr>
+<pre><code>key: str
+    Name of the property: 'voxel_size' | 'view_shape'
+illumination: int
+channel: int
+tile: int
+angle: int
+    Indices of the view attributes, &gt;= 0.
+</code></pre>
+<h2 id="returns">Returns:</h2>
+<pre><code>Value of the property, a tuple.
+</code></pre></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def get_view_property(self, key, illumination=0, channel=0, tile=0, angle=0) -&gt; tuple:
+    &#34;&#34;&#34;&#34;Get property of a vew setup from XML file. No time information required, since the setups are fixed.
+    Tuples are returned in (x, y, z) order, as in the XML file.
+    Parameters:
+    -----------
+        key: str
+            Name of the property: &#39;voxel_size&#39; | &#39;view_shape&#39;
+        illumination: int
+        channel: int
+        tile: int
+        angle: int
+            Indices of the view attributes, &gt;= 0.
+    Returns:
+    --------
+        Value of the property, a tuple.
+    &#34;&#34;&#34;
+    accepted_keys = [&#39;voxel_size&#39;, &#39;view_shape&#39;]
+    assert key in accepted_keys, f&#34;Key {key} not recognized, must be one of: {accepted_keys}.&#34;
+    isetup = self._determine_setup_id(illumination, channel, tile, angle)
+    self._get_xml_root()
+    if key == &#39;voxel_size&#39;:
+        path = &#34;./SequenceDescription/ViewSetups/ViewSetup/voxelSize/size&#34;
+        type_caster = float
+    elif key == &#39;view_shape&#39;:
+        path = &#34;./SequenceDescription/ViewSetups/ViewSetup/size&#34;
+        type_caster = int
+    props_list = self._root.findall(path)
+    # Todo: possible bug here, if the views are not in setupID order.
+    assert 0 &lt;= isetup &lt; len(props_list), f&#34;Setup index {isetup} out of range 0..{len(props_list)-1}&#34;
+    value = tuple([type_caster(val) for val in props_list[isetup].text.split()])
+    return value</code></pre>
+</details>
+</dd>
+<dt id="npy2bdv.npy2bdv.BdvEditor.read_view"><code class="name flex">
+<span>def <span class="ident">read_view</span></span>(<span>self, time=0, illumination=0, channel=0, tile=0, angle=0, ilevel=0)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Read a view (stack) specified by its time, attributes, and downsampling level into numpy array (uint16).
+Todo: implement detection of missing views using XML file, return None.</p>
 <h2 id="parameters">Parameters:</h2>
 <pre><code>time: int
     Index of time point (default 0).
-isetup: int
-    Index of setup ID (default 0)
+illumination: int
+channel: int
+tile: int
+angle: int
+    Indices of the view attributes, &gt;= 0.
 ilevel: int
- Level of subsampling, if available (default 0, no subsampling)
+    Level of subsampling, if available (default 0, no subsampling)
 </code></pre>
 <h2 id="returns">Returns:</h2>
 <pre><code>dataset: numpy array (dim=3, dtype=uint16)
@@ -624,51 +1206,39 @@ ilevel: int
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def read_view(self, time=0, isetup=0, ilevel=0):
-    &#34;&#34;&#34;Read a view (stack) specified by its time, setup ID, and downsampling level into numpy array (uint16).
+<pre><code class="python">def read_view(self, time=0, illumination=0, channel=0, tile=0, angle=0, ilevel=0):
+    &#34;&#34;&#34;Read a view (stack) specified by its time, attributes, and downsampling level into numpy array (uint16).
+    Todo: implement detection of missing views using XML file, return None.
 
     Parameters:
     -----------
         time: int
             Index of time point (default 0).
-        isetup: int
-            Index of setup ID (default 0)
+        illumination: int
+        channel: int
+        tile: int
+        angle: int
+            Indices of the view attributes, &gt;= 0.
         ilevel: int
-         Level of subsampling, if available (default 0, no subsampling)
+            Level of subsampling, if available (default 0, no subsampling)
 
     Returns:
     --------
         dataset: numpy array (dim=3, dtype=uint16)&#34;&#34;&#34;
+    isetup = self._determine_setup_id(illumination, channel, tile, angle)
     group_name = self._fmt.format(time, isetup, ilevel)
-    if self._file_object:
-        dataset = self._file_object[group_name][&#34;cells&#34;].value.astype(&#39;uint16&#39;)
+    if self._file_object_h5:
+        dataset = self._file_object_h5[group_name][&#34;cells&#34;][()].astype(&#39;uint16&#39;)
         return dataset
     else:
         raise ValueError(&#39;File object is None&#39;)</code></pre>
-</details>
-</dd>
-<dt id="npy2bdv.npy2bdv.BdvReader.set_path_h5"><code class="name flex">
-<span>def <span class="ident">set_path_h5</span></span>(<span>self, filename_h5)</span>
-</code></dt>
-<dd>
-<div class="desc"><p>Set the file path to HDF5 file. If another file was already open, it closes it before proceeding</p></div>
-<details class="source">
-<summary>
-<span>Expand source code</span>
-</summary>
-<pre><code class="python">def set_path_h5(self, filename_h5):
-    &#34;&#34;&#34;Set the file path to HDF5 file. If another file was already open, it closes it before proceeding&#34;&#34;&#34;
-    assert os.path.exists(filename_h5), &#34;Error: HDF5 file not found&#34;
-    if self._file_object:
-        self._file_object.close()
-    self._file_object = h5py.File(filename_h5, &#39;r&#39;)</code></pre>
 </details>
 </dd>
 </dl>
 </dd>
 <dt id="npy2bdv.npy2bdv.BdvWriter"><code class="flex name class">
 <span>class <span class="ident">BdvWriter</span></span>
-<span>(</span><span>filename, subsamp=((1, 1, 1),), blockdim=((4, 256, 256),), compression=None, nilluminations=1, nchannels=1, ntiles=1, nangles=1)</span>
+<span>(</span><span>filename, subsamp=((1, 1, 1),), blockdim=((4, 256, 256),), compression=None, nilluminations=1, nchannels=1, ntiles=1, nangles=1, overwrite=False)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.</p>
@@ -686,6 +1256,8 @@ nchannels: int
 ntiles: int
 nangles: int
     Number of view attributes, &gt;=1.
+overwrite: boolean
+    If True, overwrite existing file. Default False.
 </code></pre>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -706,7 +1278,8 @@ Block size can be larger than stack dimension.</p></div>
                  subsamp=((1, 1, 1),),
                  blockdim=((4, 256, 256),),
                  compression=None,
-                 nilluminations=1, nchannels=1, ntiles=1, nangles=1):
+                 nilluminations=1, nchannels=1, ntiles=1, nangles=1,
+                 overwrite=False):
         &#34;&#34;&#34;Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.
 
         Parameters:
@@ -724,6 +1297,8 @@ Block size can be larger than stack dimension.</p></div>
             ntiles: int
             nangles: int
                 Number of view attributes, &gt;=1.
+            overwrite: boolean
+                If True, overwrite existing file. Default False.
 
         .. note::
         ------
@@ -763,8 +1338,11 @@ Block size can be larger than stack dimension.</p></div>
         self.compression = compression
         self.filename = filename
         if os.path.exists(self.filename):
-            os.remove(self.filename)
-            print(&#34;Warning: H5 file already exists, overwriting!&#34;)
+            if overwrite:
+                os.remove(self.filename)
+                print(&#34;Warning: H5 file already exists, overwriting.&#34;)
+            else:
+                raise FileExistsError(f&#34;File {self.filename} already exists.&#34;)
         self.file_object = h5py.File(filename, &#39;a&#39;)
         self._write_setups_header()
         self.virtual_stacks = False
@@ -1078,26 +1656,9 @@ Block size can be larger than stack dimension.</p></div>
                     ET.SubElement(vt, &#39;affine&#39;).text = \
                         &#39;{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0&#39;.format(calx, caly, calz)
 
-        self._xml_indent(root)
+        xml_indent(root)
         tree = ET.ElementTree(root)
         tree.write(os.path.splitext(self.filename)[0] + &#34;.xml&#34;, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)
-        return
-
-    def _xml_indent(self, elem, level=0):
-        &#34;&#34;&#34;Pretty printing function&#34;&#34;&#34;
-        i = &#34;\n&#34; + level * &#34;  &#34;
-        if len(elem):
-            if not elem.text or not elem.text.strip():
-                elem.text = i + &#34;  &#34;
-            if not elem.tail or not elem.tail.strip():
-                elem.tail = i
-            for elem in elem:
-                self._xml_indent(elem, level + 1)
-            if not elem.tail or not elem.tail.strip():
-                elem.tail = i
-        else:
-            if level and (not elem.tail or not elem.tail.strip()):
-                elem.tail = i
 
     def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
         &#34;&#34;&#34;Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
@@ -1470,10 +2031,9 @@ user_name: str, optional
                 ET.SubElement(vt, &#39;affine&#39;).text = \
                     &#39;{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0&#39;.format(calx, caly, calz)
 
-    self._xml_indent(root)
+    xml_indent(root)
     tree = ET.ElementTree(root)
-    tree.write(os.path.splitext(self.filename)[0] + &#34;.xml&#34;, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)
-    return</code></pre>
+    tree.write(os.path.splitext(self.filename)[0] + &#34;.xml&#34;, xml_declaration=True, encoding=&#39;utf-8&#39;, method=&#34;xml&#34;)</code></pre>
 </details>
 </dd>
 </dl>
@@ -1492,14 +2052,22 @@ user_name: str, optional
 <li><code><a title="npy2bdv" href="index.html">npy2bdv</a></code></li>
 </ul>
 </li>
+<li><h3><a href="#header-functions">Functions</a></h3>
+<ul class="">
+<li><code><a title="npy2bdv.npy2bdv.xml_indent" href="#npy2bdv.npy2bdv.xml_indent">xml_indent</a></code></li>
+</ul>
+</li>
 <li><h3><a href="#header-classes">Classes</a></h3>
 <ul>
 <li>
-<h4><code><a title="npy2bdv.npy2bdv.BdvReader" href="#npy2bdv.npy2bdv.BdvReader">BdvReader</a></code></h4>
-<ul class="">
-<li><code><a title="npy2bdv.npy2bdv.BdvReader.close" href="#npy2bdv.npy2bdv.BdvReader.close">close</a></code></li>
-<li><code><a title="npy2bdv.npy2bdv.BdvReader.read_view" href="#npy2bdv.npy2bdv.BdvReader.read_view">read_view</a></code></li>
-<li><code><a title="npy2bdv.npy2bdv.BdvReader.set_path_h5" href="#npy2bdv.npy2bdv.BdvReader.set_path_h5">set_path_h5</a></code></li>
+<h4><code><a title="npy2bdv.npy2bdv.BdvEditor" href="#npy2bdv.npy2bdv.BdvEditor">BdvEditor</a></code></h4>
+<ul class="two-column">
+<li><code><a title="npy2bdv.npy2bdv.BdvEditor.append_affine" href="#npy2bdv.npy2bdv.BdvEditor.append_affine">append_affine</a></code></li>
+<li><code><a title="npy2bdv.npy2bdv.BdvEditor.crop_view" href="#npy2bdv.npy2bdv.BdvEditor.crop_view">crop_view</a></code></li>
+<li><code><a title="npy2bdv.npy2bdv.BdvEditor.finalize" href="#npy2bdv.npy2bdv.BdvEditor.finalize">finalize</a></code></li>
+<li><code><a title="npy2bdv.npy2bdv.BdvEditor.get_attribute_count" href="#npy2bdv.npy2bdv.BdvEditor.get_attribute_count">get_attribute_count</a></code></li>
+<li><code><a title="npy2bdv.npy2bdv.BdvEditor.get_view_property" href="#npy2bdv.npy2bdv.BdvEditor.get_view_property">get_view_property</a></code></li>
+<li><code><a title="npy2bdv.npy2bdv.BdvEditor.read_view" href="#npy2bdv.npy2bdv.BdvEditor.read_view">read_view</a></code></li>
 </ul>
 </li>
 <li>
