@@ -1,5 +1,6 @@
 ## v.1.0.2 candidate
 :exclamation: **API change**: The `BdvReader` class was replaced with `BdvEditor`, which allows e.g. streamlined reading and cropping views in H5 and XML files.
+
 :mag: **Test coverage**: The tests became much more comprehensive and cover most of the functionality.
 
 ## v.1.0.1 stable

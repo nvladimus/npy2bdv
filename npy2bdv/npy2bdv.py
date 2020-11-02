@@ -526,7 +526,7 @@ class BdvEditor:
                 if bbox_xyz[2]:
                     view_arr = view_arr[slice(*bbox_xyz[2]), :, :]
                 view_dataset.resize(view_arr.shape)
-                view_dataset = view_arr
+                view_dataset[:] = view_arr # Always use braces here! A common mistake to omit them.
                 self._file_object_h5.flush()
         else:
             raise FileNotFoundError(self.filename_h5)
