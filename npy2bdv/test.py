@@ -111,11 +111,12 @@ class TestReadWrite(unittest.TestCase):
                 for i_illum in range(self.N_ILL):
                     for i_tile in range(self.N_TILES):
                         for i_angle in range(self.N_ANGLES):
-                            h5_shape_before = editor.read_view(time=t,
-                                                               channel=i_ch,
-                                                               illumination=i_illum,
-                                                               tile=i_tile,
-                                                               angle=i_angle).shape
+                            original_view = editor.read_view(time=t,
+                                                            channel=i_ch,
+                                                            illumination=i_illum,
+                                                            tile=i_tile,
+                                                            angle=i_angle)
+                            h5_shape_before = original_view.shape
                             xml_shape_before = editor.get_view_property(key='view_shape',
                                                                         channel=i_ch,
                                                                         illumination=i_illum,
@@ -126,11 +127,12 @@ class TestReadWrite(unittest.TestCase):
                                              illumination=i_illum,
                                              tile=i_tile,
                                              angle=i_angle)
-                            h5_shape_after = editor.read_view(time=t,
-                                                              channel=i_ch,
-                                                              illumination=i_illum,
-                                                              tile=i_tile,
-                                                              angle=i_angle).shape
+                            cropped_view = editor.read_view(time=t,
+                                                            channel=i_ch,
+                                                            illumination=i_illum,
+                                                            tile=i_tile,
+                                                            angle=i_angle)
+                            h5_shape_after = cropped_view.shape
                             xml_shape_after = editor.get_view_property(key='view_shape',
                                                                         channel=i_ch,
                                                                         illumination=i_illum,
@@ -150,6 +152,8 @@ class TestReadWrite(unittest.TestCase):
                             self.assertEqual(xml_shape_after[::-1], xml_shape_expected,
                                              f"View shapes  mismatch in XML before and after crop:"
                                              f"{xml_shape_after[::-1]} vs {xml_shape_expected}")
+                            self.assertTrue((original_view[1:-1, 2:-2, 3:-3] == cropped_view).all(),
+                                            "Cropped view is not equal the substack of original view")
         editor.finalize()
 
     def tearDown(self) -> None:
