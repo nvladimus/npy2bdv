@@ -591,8 +591,11 @@ class BdvEditor:
         value = tuple([type_caster(val) for val in props_list[isetup].text.split()])
         return value
 
-    def append_affine(self, time, isetup, m_affine, name_affine="Appended affine transformation using npy2bdv."):
-        """" Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+    def append_affine(self, m_affine, name_affine="Appended affine transformation using npy2bdv.",
+                      time=0, illumination=0, channel=0, tile=0, angle=0):
+        """" Append affine transformation to a view. This transformation will be placed on top,
+        e.g. executed by the BigStitcher last.
+        The transformation is defined as matrix of shape (3,4).
         Each column represents coordinate unit vectors after the transformation.
         The last column represents translation in (x,y,z).
         Todo: Not tested yet!
@@ -601,14 +604,18 @@ class BdvEditor:
         -----------
             time: int
                 Time index, >=0.
-            isetup: int
-                Setup index, >=0.
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, >= 0.
             m_affine: numpy array of shape (3,4)
                 Coefficients of affine transformation matrix (m00, m01, ...)
             name_affine: str, optional
                 Name of the affine transformation.
             """
         self._get_xml_root()
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
         assert m_affine.shape == (3,4), "m_affine must be a numpy array of shape (3,4)"
         found = False
         for node in self._root.findall('./ViewRegistrations/ViewRegistration'):
@@ -616,7 +623,8 @@ class BdvEditor:
                 found = True
                 break
         assert found, f'Node not found: <ViewRegistration setup="{isetup}" timepoint="{time}">'
-        vt = ET.SubElement(node, 'ViewTransform')
+        vt = ET.Element('ViewTransform')
+        node.insert(0, vt)
         vt.set('type', 'affine')
         ET.SubElement(vt, 'Name').text = name_affine
         n_prec = 6
