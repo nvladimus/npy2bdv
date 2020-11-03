@@ -433,13 +433,14 @@ class BdvEditor:
     def __init__(self, filename):
         """
         Class for reading and editing existing H5/XML file pairs.
-        Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at your own risk.
+        Warning: Editing of H5/XML files occurs in-place, and there is currently no undo option. Use at your own risk.
+        Todo: add an option to save results as new XML file.
 
         Parameters:
         -----------
             filename: string,
                 Path to either .h5 or .xml file. The other file of the pair must be present
-                in the same folder, by convention.
+                in the same folder.
         """
         self._fmt = 't{:05d}/s{:02d}/{}'
         if filename[-2:] == 'h5':
@@ -598,7 +599,6 @@ class BdvEditor:
         The transformation is defined as matrix of shape (3,4).
         Each column represents coordinate unit vectors after the transformation.
         The last column represents translation in (x,y,z).
-        Todo: Not tested yet!
 
         Parameters:
         -----------
