@@ -7,17 +7,19 @@ import numpy as np
 from xml.etree import ElementTree as ET
 import skimage.transform
 import shutil
+import z5py
 
 class BdvWriter:
-    __version__ = "2020.10"
+    __version__ = "2020.11"
 
     def __init__(self, filename,
                  subsamp=((1, 1, 1),),
                  blockdim=((4, 256, 256),),
                  compression=None,
                  nilluminations=1, nchannels=1, ntiles=1, nangles=1,
-                 overwrite=False):
-        """Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.
+                 overwrite=False,
+                 format='h5'):
+        """Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher compatible dataset.
 
         Parameters:
         -----------
@@ -36,6 +38,8 @@ class BdvWriter:
                 Number of view attributes, >=1.
             overwrite: boolean
                 If True, overwrite existing file. Default False.
+            format: str
+                Data format to use: 'h5' (default), 'n5'.
 
         .. note::
         ------
@@ -74,13 +78,19 @@ class BdvWriter:
         self.exposure_units = {}
         self.compression = compression
         self.filename = filename
+        self.file_format = format
         if os.path.exists(self.filename):
             if overwrite:
                 os.remove(self.filename)
                 print("Warning: H5 file already exists, overwriting.")
             else:
                 raise FileExistsError(f"File {self.filename} already exists.")
-        self.file_object = h5py.File(filename, 'a')
+        if self.file_format == 'h5':
+            self.file_object = h5py.File(filename, 'a')
+        elif self.file_format == 'n5':
+            self.file_object = z5py.File(filename[-2:] + 'n5', 'a')
+        else:
+            raise ValueError("File format unknown")
         self._write_setups_header()
         self.virtual_stacks = False
         self.setup_id_present = [[False] * self.nsetups]
@@ -423,8 +433,9 @@ class BdvWriter:
         self.setup_id_present[itime][isetup] = True
 
     def close(self):
-        """Save changes and close the H5 file."""
-        self.file_object.close()
+        """Save changes and close the data file if needed."""
+        if self.file_format == "h5":
+            self.file_object.close()
 
 
 class BdvEditor:

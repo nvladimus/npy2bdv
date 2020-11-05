@@ -6,7 +6,13 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
  
  ## Installation
- Run `pip install` in the command line. Use `import npy2bdv` in the code.
+ Optional: if you will use `n5` or `zarr` formats, install [`z5py`](https://github.com/constantinpape/z5) first in a new conda environment:
+ ```
+    conda create --name z5
+    conda activae z5
+    conda install -c conda-forge z5py
+```
+ Run `pip install npy2bdv` in the command line. Use `import npy2bdv` in the code.
  
  ## Documentation
 For a quick start, see examples in the Jupyter [`notebook`](/npy2bdv/docs/examples_h5.ipynb).

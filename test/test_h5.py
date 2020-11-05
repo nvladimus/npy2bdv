@@ -1,4 +1,4 @@
-# python -m test.test_h5
+#!/usr/bin/env python -m test.test_h5
 import npy2bdv
 import os
 import shutil
@@ -7,7 +7,7 @@ import numpy as np
 from .sample import generate_test_image
 
 
-class TestReadWrite(unittest.TestCase):
+class TestReadWriteH5(unittest.TestCase):
     """Write a dataset with multiples views, and load it back. Compare the loaded dataset vs expetations.
     """
     def setUp(self) -> None:
