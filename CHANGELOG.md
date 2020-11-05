@@ -3,7 +3,6 @@
 
 :gem: `BdvEditor.append_affine()`: affine transformation can be appended to an existing dataset (before, it was only possible when creating a new dataset via `BdvWriter.write_xml_file()`). 
 
-
 :mag: **Test coverage**: The tests became much more comprehensive and cover most of the functionality.
 
 ## v.1.0.1 stable

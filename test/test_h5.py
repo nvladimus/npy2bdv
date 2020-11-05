@@ -1,24 +1,17 @@
+# python -m test.test_h5
 import npy2bdv
 import os
 import shutil
 import unittest
 import numpy as np
-
-
-def generate_test_image(dim_yx, iz, nz):
-    """Gaussian blob spanning the range of uint16 type."""
-    x = np.linspace(-3, 3, dim_yx[1])
-    y = np.linspace(-3, 3, dim_yx[0])
-    sigma = 1.0 - abs(iz - nz/2) / nz
-    x, y = np.meshgrid(x, y)
-    return (65535 * np.exp(- ((x ** 2) + (y ** 2)) / (2 * sigma**2) )).astype("uint16")
+from .sample import generate_test_image
 
 
 class TestReadWrite(unittest.TestCase):
     """Write a dataset with multiples views, and load it back. Compare the loaded dataset vs expetations.
     """
     def setUp(self) -> None:
-        self.test_dir = "./test_files/"
+        self.test_dir = "./test/test_files/"
         self.fname = self.test_dir + "test_ex1_t2_ch2_illum2_angle2.h5"
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)

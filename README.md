@@ -9,7 +9,7 @@
  Run `pip install` in the command line. Use `import npy2bdv` in the code.
  
  ## Documentation
-For a quick start, see examples in the Jupyter [`notebook`](/npy2bdv/examples.ipynb).
+For a quick start, see examples in the Jupyter [`notebook`](/npy2bdv/docs/examples_h5.ipynb).
 
 API [reference](https://nvladimus.github.io/npy2bdv/).
 
@@ -33,7 +33,8 @@ API [reference](https://nvladimus.github.io/npy2bdv/).
     - virtual stacks can be written with multiple subsampling levels and compression.
     
  ## New features
- - The H5/XML datasets can now be **edited** in-place, e.g. by cropping selected views in `x,y,z`. Examples coming soon.
+ - The H5/XML datasets can now be **edited** in-place, e.g. by cropping selected views in `x,y,z`, 
+ and appending affine transforms to XML. Examples coming soon.
 
  
  ## Writing speed
