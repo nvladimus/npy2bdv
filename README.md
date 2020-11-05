@@ -10,7 +10,7 @@
  
  ## Documentation
 For a quick start, see examples in the Jupyter 
-[`notebook`](/npy2bdv/docs/examples/examples_h5writing.ipynb).
+[`notebook`](/docs/examples/examples_h5writing.ipynb).
 
 API [reference](https://nvladimus.github.io/npy2bdv/).
 
