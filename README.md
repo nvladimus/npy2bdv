@@ -6,10 +6,11 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
  
  ## Installation
- Run `pip install` in the command line. Use `import npy2bdv` in the code.
+ Run `pip install npy2bdv` in the command line. Use `import npy2bdv` in the code.
  
  ## Documentation
-For a quick start, see examples in the Jupyter [`notebook`](/npy2bdv/docs/examples_h5.ipynb).
+For a quick start, see examples in the Jupyter 
+[`notebook`](/npy2bdv/docs/examples/examples_h5writing.ipynb).
 
 API [reference](https://nvladimus.github.io/npy2bdv/).
 
