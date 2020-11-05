@@ -30,7 +30,7 @@ class BdvWriter:
             blockdim: tuple of tuples
                 Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),), see notes.
             compression: None or str
-                (None, 'gzip', 'lzf'), HDF5 compression method. Default is None for high-speed writing.
+                (None, 'gzip', 'lzf'), H5 compression method. Default is None for high-speed writing.
             nilluminations: int
             nchannels: int
             ntiles: int
@@ -53,7 +53,6 @@ class BdvWriter:
         assert nchannels >= 1, "Total number of channels must be at least 1."
         assert ntiles >= 1, "Total number of tiles must be at least 1."
         assert nangles >= 1, "Total number of angles must be at least 1."
-        assert compression in (None, 'gzip', 'lzf'), 'Unknown compression type'
         assert all([isinstance(element, int) for tupl in subsamp for element in
                     tupl]), 'subsamp values should be integers >= 1.'
         if len(blockdim) < len(subsamp):
@@ -76,9 +75,9 @@ class BdvWriter:
         self.voxel_units = {}
         self.exposure_time = {}
         self.exposure_units = {}
-        self.compression = compression
         self.filename = filename
         self.file_format = format
+        self.compression = None
         if os.path.exists(self.filename):
             if overwrite:
                 os.remove(self.filename)
@@ -87,8 +86,13 @@ class BdvWriter:
                 raise FileExistsError(f"File {self.filename} already exists.")
         if self.file_format == 'h5':
             self.file_object = h5py.File(filename, 'a')
+            self.compression = compression
         elif self.file_format == 'n5':
-            self.file_object = z5py.File(filename[-2:] + 'n5', 'a')
+            self.file_object = z5py.File(filename[:-2] + 'n5', 'a')
+            if compression is None:
+                self.compression = 'raw'
+                # COMPRESSORS_ZARR = ('raw', 'blosc', 'zlib', 'bzip2', 'gzip')
+                # COMPRESSORS_N5 = ('raw', 'blosc', 'gzip', 'bzip2', 'xz', 'lz4')
         else:
             raise ValueError("File format unknown")
         self._write_setups_header()
@@ -102,8 +106,8 @@ class BdvWriter:
             if group_name in self.file_object:
                 del self.file_object[group_name]
             grp = self.file_object.create_group(group_name)
-            data_subsamp = np.flip(self.subsamp, 1)
-            data_chunks = np.flip(self.chunks, 1)
+            data_subsamp = np.flip(self.subsamp, 1).astype('float64')
+            data_chunks = np.flip(self.chunks, 1).astype('int32')
             grp.create_dataset('resolutions', data=data_subsamp, dtype='<f8')
             grp.create_dataset('subdivisions', data=data_chunks, dtype='<i4')
 
@@ -195,8 +199,13 @@ class BdvWriter:
             grp = self.file_object.create_group(group_name)
             if stack is not None:
                 subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
-                grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
-                                   maxshape=(None, None, None), compression=self.compression, dtype='int16')
+                if self.file_format == 'h5':
+                    grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
+                                       maxshape=(None, None, None), compression=self.compression, dtype='int16')
+                else:
+                    grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
+                                       compression=self.compression, dtype='int16')
+
             else:  # a large virtual stack initialized
                 assert self.subsamp[ilevel][0] == 1, "Virtual stacks must have z-subsampling == 1," \
                                                      " eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16))."

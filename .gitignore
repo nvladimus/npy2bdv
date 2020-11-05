@@ -9,7 +9,7 @@ __pycache__/
 # C extensions
 *.so
 
-npy2bdv/ignore/
+/test/test_files
 
 # Distribution / packaging
 .packaging.bat

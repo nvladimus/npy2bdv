@@ -29,6 +29,7 @@ class TestReadWriteN5(unittest.TestCase):
                                        nilluminations=self.N_ILL,
                                        ntiles=self.N_TILES,
                                        nangles=self.N_ANGLES, overwrite=True,
+                                       compression=None,
                                        format='n5')
         for t in range(self.N_T):
             for i_ch in range(self.N_CH):
