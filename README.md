@@ -16,7 +16,7 @@ API [reference](https://nvladimus.github.io/npy2bdv/).
 
 [Recent changes](CHANGELOG.md)
  
- ## Supported writing options
+ ## Supported H5/XML writing options
  * compression methods `None`, `gzip`, `lzf` (`None` by default).
  * downsampling options: 
     - any number of mipmap levels
