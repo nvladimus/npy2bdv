@@ -12,12 +12,12 @@ class TestReadWriteH5(unittest.TestCase):
     """
     def setUp(self) -> None:
         self.test_dir = "./test/test_files/"
-        self.fname = self.test_dir + "test_ex1_t2_ch2_illum2_angle2.h5"
+        self.fname = self.test_dir + "test_t5_ch3_ill2_tiles4_ang2.h5"
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
 
         self.NZ, self.NY, self.NX = 8, 35, 35 # XY dims must be odd to get nominal 65535 peak value.
-        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 4, 6, 4
+        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 5, 3, 2, 4, 2
         
         self.stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
         for z in range(self.NZ):
@@ -95,6 +95,7 @@ class TestReadWriteH5(unittest.TestCase):
         self.assertEqual(nangles, self.N_ANGLES, f"nangles is incorrect: {nangles}.")
         editor.finalize()
 
+    @unittest.skip("temporary")
     def test_cropping(self):
         """"BdvEditor: crop a view in-place for all time points,
          and check if new H5 view size matches the XML view size."""
@@ -150,8 +151,9 @@ class TestReadWriteH5(unittest.TestCase):
         editor.finalize()
 
     def tearDown(self) -> None:
-        if os.path.exists(self.test_dir):
-            shutil.rmtree(self.test_dir)
+        pass
+        #if os.path.exists(self.test_dir):
+        #    shutil.rmtree(self.test_dir)
 
 
 if __name__ == '__main__':

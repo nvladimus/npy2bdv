@@ -13,12 +13,12 @@ class TestReadWriteN5(unittest.TestCase):
 
     def setUp(self) -> None:
         self.test_dir = "./test/test_files/"
-        self.fname = self.test_dir + "test_.n5"
+        self.fname = self.test_dir + "test_t5_ch3_ill2_tiles4_ang2.n5"
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
 
         self.NZ, self.NY, self.NX = 8, 35, 35  # XY dims must be odd to get nominal 65535 peak value.
-        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 4, 6, 4
+        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 5, 3, 2, 4, 2
 
         self.stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
         for z in range(self.NZ):

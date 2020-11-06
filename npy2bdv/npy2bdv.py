@@ -87,6 +87,7 @@ class BdvWriter:
         if self.file_format == 'h5':
             self.file_object = h5py.File(filename, 'a')
             self.compression = compression
+            self._write_setups_header()
         elif self.file_format == 'n5':
             self.file_object = z5py.File(filename[:-2] + 'n5', 'a')
             if compression is None:
@@ -95,7 +96,6 @@ class BdvWriter:
                 # COMPRESSORS_N5 = ('raw', 'blosc', 'gzip', 'bzip2', 'xz', 'lz4')
         else:
             raise ValueError("File format unknown")
-        self._write_setups_header()
         self.virtual_stacks = False
         self.setup_id_present = [[False] * self.nsetups]
 
@@ -192,26 +192,38 @@ class BdvWriter:
             self.stack_shapes[isetup] = virtual_stack_dim
             self.virtual_stacks = True
 
-        for ilevel in range(self.nlevels):
-            group_name = self._fmt.format(time, isetup, ilevel)
-            if group_name in self.file_object:
-                del self.file_object[group_name]
-            grp = self.file_object.create_group(group_name)
-            if stack is not None:
-                subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
-                if self.file_format == 'h5':
+        if self.file_format == 'h5':
+            for ilevel in range(self.nlevels):
+                group_name = self._fmt.format(time, isetup, ilevel)
+                if group_name in self.file_object:
+                    del self.file_object[group_name]
+                grp = self.file_object.create_group(group_name)
+                if stack is not None:
+                    subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
                     grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
-                                       maxshape=(None, None, None), compression=self.compression, dtype='int16')
-                else:
-                    grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
+                                           maxshape=(None, None, None), compression=self.compression, dtype='int16')
+                else:  # a large virtual stack initialized
+                    assert self.subsamp[ilevel][0] == 1, "Virtual stacks must have z-subsampling == 1," \
+                                                         " eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16))."
+                    grp.create_dataset('cells', chunks=self.chunks[ilevel],
+                                       shape=virtual_stack_dim // self.subsamp[ilevel],
                                        compression=self.compression, dtype='int16')
+        else: # N5
+            ilevel = 0
+            _fmt_n5 = 'setup{:d}/timepoint{:d}'
+            group_name = _fmt_n5.format(isetup, time)
+            grp = self.file_object.create_group(group_name)
+            self.file_object[f"setup{isetup}"].attrs['downsamplingFactors'] = [[1, 1, 1], ]
+            self.file_object[f"setup{isetup}"].attrs['dataType'] = 'uint16'
+            self.file_object[f"setup{isetup}/timepoint{time}"].attrs["resolution"] = [1.0, 1.0, 4.0]
+            self.file_object[f"setup{isetup}/timepoint{time}"].attrs["saved_completely"] = True
+            self.file_object[f"setup{isetup}/timepoint{time}"].attrs["multiScale"] = True
+            if stack is not None:
+                subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype('uint16')
+                grp.create_dataset(f"s{ilevel}", data=subdata, chunks=self.chunks[ilevel],
+                                   compression=self.compression, dtype='uint16')
+                self.file_object[f"setup{isetup}/timepoint{time}/s{ilevel}"].attrs['downsamplingFactors'] = [1, 1, 1]
 
-            else:  # a large virtual stack initialized
-                assert self.subsamp[ilevel][0] == 1, "Virtual stacks must have z-subsampling == 1," \
-                                                     " eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16))."
-                grp.create_dataset('cells', chunks=self.chunks[ilevel],
-                                   shape=virtual_stack_dim // self.subsamp[ilevel],
-                                   compression=self.compression, dtype='int16')
         if m_affine is not None:
             self.affine_matrices[isetup] = m_affine.copy()
             self.affine_names[isetup] = name_affine
@@ -307,8 +319,13 @@ class BdvWriter:
 
         seqdesc = ET.SubElement(root, 'SequenceDescription')
         imgload = ET.SubElement(seqdesc, 'ImageLoader')
-        imgload.set('format', 'bdv.hdf5')
-        el = ET.SubElement(imgload, 'hdf5')
+        if self.file_format == 'h5':
+            imgload.set('format', 'bdv.hdf5')
+            el = ET.SubElement(imgload, 'hdf5')
+        else: # N5
+            imgload.set('format', 'bdv.n5')
+            imgload.set('version', '1.0')
+            el = ET.SubElement(imgload, 'n5')
         el.set('type', 'relative')
         el.text = os.path.basename(self.filename)
         # write ViewSetups
