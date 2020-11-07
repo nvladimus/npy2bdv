@@ -17,14 +17,17 @@ class TestReadWriteN5(unittest.TestCase):
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
 
-        self.NZ, self.NY, self.NX = 8, 35, 35  # XY dims must be odd to get nominal 65535 peak value.
+        self.NZ, self.NY, self.NX = 8, 65, 65  # XY dims must be odd to get nominal 65535 peak value.
         self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 5, 3, 2, 4, 2
-
+        self.SUBSAMPLING_ZYX = ((1, 1, 1), (4, 2, 2))
+        # self.BLOCKDIM_ZYX = ((4, 16, 16), (1, 8, 8))
         self.stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
+
         for z in range(self.NZ):
             self.stack[z, :, :] = generate_test_image((self.NY, self.NX), z, self.NZ)
 
         bdv_writer = npy2bdv.BdvWriter(self.fname,
+                                       subsamp_zyx=self.SUBSAMPLING_ZYX,
                                        nchannels=self.N_CH,
                                        nilluminations=self.N_ILL,
                                        ntiles=self.N_TILES,

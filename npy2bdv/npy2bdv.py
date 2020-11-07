@@ -13,7 +13,7 @@ class BdvWriter:
     __version__ = "2020.11"
 
     def __init__(self, filename,
-                 subsamp=((1, 1, 1),),
+                 subsamp_zyx=((1, 1, 1),),
                  blockdim=((4, 256, 256),),
                  compression=None,
                  nilluminations=1, nchannels=1, ntiles=1, nangles=1,
@@ -25,7 +25,7 @@ class BdvWriter:
         -----------
             filename: string
                 File name (full path).
-            subsamp: tuple of tuples
+            subsamp_zyx: tuple of tuples
                 Subsampling levels in (z,y,x) order. Integers >= 1, default value ((1, 1, 1),) for no subsampling.
             blockdim: tuple of tuples
                 Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),), see notes.
@@ -53,10 +53,10 @@ class BdvWriter:
         assert nchannels >= 1, "Total number of channels must be at least 1."
         assert ntiles >= 1, "Total number of tiles must be at least 1."
         assert nangles >= 1, "Total number of angles must be at least 1."
-        assert all([isinstance(element, int) for tupl in subsamp for element in
+        assert all([isinstance(element, int) for tupl in subsamp_zyx for element in
                     tupl]), 'subsamp values should be integers >= 1.'
-        if len(blockdim) < len(subsamp):
-            print(f"INFO: blockdim levels ({len(blockdim)}) < subsamp levels ({len(subsamp)}):"
+        if len(blockdim) < len(subsamp_zyx):
+            print(f"INFO: blockdim levels ({len(blockdim)}) < subsamp levels ({len(subsamp_zyx)}):"
                   f" First-level block size {blockdim[0]} will be used for all levels")
         self._fmt = 't{:05d}/s{:02d}/{}'
         self.nsetups = nilluminations * nchannels * ntiles * nangles
@@ -64,8 +64,8 @@ class BdvWriter:
         self.nchannels = nchannels
         self.ntiles = ntiles
         self.nangles = nangles
-        self.subsamp = np.asarray(subsamp)
-        self.nlevels = len(subsamp)
+        self.subsamp_zyx = np.asarray(subsamp_zyx)
+        self.nlevels = len(subsamp_zyx)
         self.chunks = self._compute_chunk_size(blockdim)
         self.stack_shapes = {}
         self.affine_matrices = {}
@@ -106,7 +106,7 @@ class BdvWriter:
             if group_name in self.file_object:
                 del self.file_object[group_name]
             grp = self.file_object.create_group(group_name)
-            data_subsamp = np.flip(self.subsamp, 1).astype('float64')
+            data_subsamp = np.flip(self.subsamp_zyx, 1).astype('float64')
             data_chunks = np.flip(self.chunks, 1).astype('int32')
             grp.create_dataset('resolutions', data=data_subsamp, dtype='<f8')
             grp.create_dataset('subdivisions', data=data_chunks, dtype='<i4')
@@ -114,7 +114,7 @@ class BdvWriter:
     def append_plane(self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0):
         """Append a plane to a virtual stack. Requires stack initialization by calling e.g.
         `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
-        
+
         Parameters:
         -----------
             plane: array_like
@@ -129,7 +129,7 @@ class BdvWriter:
             angle: int
                 Indices of the view attributes, >=0.
         """
-        
+
         assert self.virtual_stacks, "Appending planes requires initialization with virtual stack, " \
                                     "see append_view(stack=None,...)"
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
@@ -139,7 +139,7 @@ class BdvWriter:
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self.file_object[group_name]["cells"]
-            dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype('int16')
+            dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp_zyx[ilevel]).astype('int16')
 
     def append_view(self, stack, virtual_stack_dim=None,
                     time=0, illumination=0, channel=0, tile=0, angle=0,
@@ -148,7 +148,7 @@ class BdvWriter:
                     exposure_time=0, exposure_units='s'):
         """
         Write 3-dimensional numpy array (stack) to the h5 file with the specified timepoint `itime` and attributes.
-        
+
         Parameters:
         -----------
             stack: numpy array (uint16) or None
@@ -179,7 +179,7 @@ class BdvWriter:
             exposure_units: str, optional
                 Time units for this view, default "s".
         """
-        
+
         assert len(calibration) == 3, "Calibration must be a tuple of 3 elements (x, y, z)."
         assert len(voxel_size_xyz) == 3, "Voxel size must be a tuple of 3 elements (x, y, z)."
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
@@ -188,6 +188,7 @@ class BdvWriter:
             assert len(stack.shape) == 3, "Stack should be a 3-dimensional numpy array (z,y,x)"
             self.stack_shapes[isetup] = stack.shape
         else:
+            assert self.file_format == 'h5', "Only H5 is currently implemented for virtual stack writing."
             assert len(virtual_stack_dim) == 3, "Stack is virtual, so parameter virtual_stack_dim must be defined."
             self.stack_shapes[isetup] = virtual_stack_dim
             self.virtual_stacks = True
@@ -199,30 +200,29 @@ class BdvWriter:
                     del self.file_object[group_name]
                 grp = self.file_object.create_group(group_name)
                 if stack is not None:
-                    subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
+                    subdata = self._subsample_stack(stack, self.subsamp_zyx[ilevel]).astype('int16')
                     grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
                                            maxshape=(None, None, None), compression=self.compression, dtype='int16')
                 else:  # a large virtual stack initialized
-                    assert self.subsamp[ilevel][0] == 1, "Virtual stacks must have z-subsampling == 1," \
+                    assert self.subsamp_zyx[ilevel][0] == 1, "Virtual stacks must have z-subsampling == 1," \
                                                          " eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16))."
                     grp.create_dataset('cells', chunks=self.chunks[ilevel],
-                                       shape=virtual_stack_dim // self.subsamp[ilevel],
+                                       shape=virtual_stack_dim // self.subsamp_zyx[ilevel],
                                        compression=self.compression, dtype='int16')
         else: # N5
-            ilevel = 0
-            _fmt_n5 = 'setup{:d}/timepoint{:d}'
-            group_name = _fmt_n5.format(isetup, time)
-            grp = self.file_object.create_group(group_name)
-            self.file_object[f"setup{isetup}"].attrs['downsamplingFactors'] = [[1, 1, 1], ]
+            grp = self.file_object.create_group(f"setup{isetup}/timepoint{time}")
+            self.file_object[f"setup{isetup}"].attrs['downsamplingFactors'] = self.subsamp_zyx.tolist()
             self.file_object[f"setup{isetup}"].attrs['dataType'] = 'uint16'
-            self.file_object[f"setup{isetup}/timepoint{time}"].attrs["resolution"] = [1.0, 1.0, 4.0]
+            self.file_object[f"setup{isetup}/timepoint{time}"].attrs["resolution"] = list(voxel_size_xyz)
             self.file_object[f"setup{isetup}/timepoint{time}"].attrs["saved_completely"] = True
             self.file_object[f"setup{isetup}/timepoint{time}"].attrs["multiScale"] = True
             if stack is not None:
-                subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype('uint16')
-                grp.create_dataset(f"s{ilevel}", data=subdata, chunks=self.chunks[ilevel],
-                                   compression=self.compression, dtype='uint16')
-                self.file_object[f"setup{isetup}/timepoint{time}/s{ilevel}"].attrs['downsamplingFactors'] = [1, 1, 1]
+                for ilevel in range(self.nlevels):
+                    subdata = self._subsample_stack(stack, self.subsamp_zyx[ilevel]).astype('uint16')
+                    grp.create_dataset(f"s{ilevel}", data=subdata, chunks=self.chunks[ilevel],
+                                       compression=self.compression, dtype='uint16')
+                    self.file_object[f"setup{isetup}/timepoint{time}/s{ilevel}"].attrs['downsamplingFactors'] = \
+                        self.subsamp_zyx[ilevel].tolist()
 
         if m_affine is not None:
             self.affine_matrices[isetup] = m_affine.copy()
@@ -239,8 +239,8 @@ class BdvWriter:
         """
         chunks = []
         base_level = blockdim[0]
-        if len(blockdim) < len(self.subsamp):
-            for ilevel in range(len(self.subsamp)):
+        if len(blockdim) < len(self.subsamp_zyx):
+            for ilevel in range(len(self.subsamp_zyx)):
                 chunks.append(base_level)
             chunks_tuple = tuple(chunks)
         else:

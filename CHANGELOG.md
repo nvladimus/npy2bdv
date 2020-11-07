@@ -1,9 +1,12 @@
-## v.1.0.2 candidate
-:exclamation: **API change**: The `BdvReader` class was replaced with `BdvEditor`, which allows e.g. streamlined reading and cropping views in H5 and XML files.
+## v.1.1 candidate
+- :gem: **N5 writing added**: simply put `BdvWriter(...,format='n5')` and voila, nejoy the new format.
+- :gem: `BdvEditor.append_affine()`: affine transformation can be appended to an existing dataset (before, it was only possible when creating a new dataset via `BdvWriter.write_xml_file()`). 
+- :mag: **Test coverage**: The tests became much more comprehensive and cover most of the functionality.
+### API changes
+- :exclamation: **argument name**: `BdvWriter(...,subsamp)` to `subsamp_zyx` to avoid mental mapping.
+- :exclamation: **new class**: The `BdvReader` class was replaced with `BdvEditor`, which allows e.g. streamlined reading and cropping views in H5 and XML files.
 
-:gem: `BdvEditor.append_affine()`: affine transformation can be appended to an existing dataset (before, it was only possible when creating a new dataset via `BdvWriter.write_xml_file()`). 
 
-:mag: **Test coverage**: The tests became much more comprehensive and cover most of the functionality.
 
 ## v.1.0.1 stable
 :bug: *Bugfix*: affine transformations of different views were mixed due to using mutable argument `m_affine` in `append_view()`
