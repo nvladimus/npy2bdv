@@ -22,7 +22,7 @@ Install library [`z5py`](https://github.com/constantinpape/z5) and IPython noteb
  To install latest version from this repo, clone it and run `python setup.py install`
  
  ## Documentation
-For a quick start, see examples in the Jupyter [`notebook`](/npy2bdv/docs/examples_h5writing.ipynb).
+For a quick start, see examples in the Jupyter [`notebook`](/npy2bdv/docs/examples/h5writing.ipynb).
 
 API [reference](https://nvladimus.github.io/npy2bdv/).
 
@@ -31,7 +31,6 @@ API [reference](https://nvladimus.github.io/npy2bdv/).
  - The H5/XML datasets can be edited in-place, e.g. by cropping selected views in `x,y,z`, 
  and appending affine transforms to XML. 
  
-
 
  ## Supported writing options
  * H5 compression methods `None`, `gzip`, `lzf`.
