@@ -14,7 +14,7 @@ class TestWriteN5(unittest.TestCase):
 
     def setUp(self) -> None:
         self.test_dir = "./test/test_files/"
-        self.fname = self.test_dir + "test_t2_ch3_ill2_tiles4_ang2.n5"
+        self.fname = self.test_dir + "test_N5_t2_ch3_ill2_tiles4_ang2.n5"
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
 
@@ -48,7 +48,7 @@ class TestWriteN5(unittest.TestCase):
                                                    tile=i_tile,
                                                    angle=i_angle,
                                                    voxel_size_xyz=(1, 1, 4))
-        bdv_writer.write_xml_file(ntimes=self.N_T)
+        bdv_writer.write_xml(ntimes=self.N_T)
         bdv_writer.close()
 
     def test_n5_writing(self):
@@ -66,7 +66,7 @@ class TestWriteN5Tiles(unittest.TestCase):
 
     def setUp(self) -> None:
         self.test_dir = "./test/test_files/"
-        self.fname = self.test_dir + "test_t2_ch3_ill2_tiles2x2grid_ang2.n5"
+        self.fname = self.test_dir + "test_N5_t2_ch3_ill2_tiles2x2grid_ang2.n5"
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
 
@@ -114,7 +114,7 @@ class TestWriteN5Tiles(unittest.TestCase):
                                                    voxel_size_xyz=(1, 1, 4),
                                                    m_affine=affine_matrix,
                                                    name_affine=f"tile {i_tile} translation")
-        bdv_writer.write_xml_file(ntimes=self.N_T)
+        bdv_writer.write_xml(ntimes=self.N_T)
         bdv_writer.close()
 
     def test_n5_tiling(self):

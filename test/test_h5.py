@@ -12,12 +12,12 @@ class TestReadWriteH5(unittest.TestCase):
     """
     def setUp(self) -> None:
         self.test_dir = "./test/test_files/"
-        self.fname = self.test_dir + "test_t5_ch3_ill2_tiles4_ang2.h5"
+        self.fname = self.test_dir + "test_H5_t5_ch3_ill2_tiles4_ang2.h5"
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
 
-        self.NZ, self.NY, self.NX = 8, 35, 35 # XY dims must be odd to get nominal 65535 peak value.
-        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 5, 3, 2, 4, 2
+        self.NZ, self.NY, self.NX = 8, 65, 65 # XY dims must be odd to get nominal 65535 peak value.
+        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 3, 2, 4, 2
         
         self.stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
         for z in range(self.NZ):
@@ -39,7 +39,7 @@ class TestReadWriteH5(unittest.TestCase):
                                                    tile=i_tile,
                                                    angle=i_angle,
                                                    voxel_size_xyz=(1, 1, 4))
-        bdv_writer.write_xml_file(ntimes=self.N_T)
+        bdv_writer.write_xml(ntimes=self.N_T)
         bdv_writer.close()
 
     def test_range_uint16(self):
@@ -95,7 +95,6 @@ class TestReadWriteH5(unittest.TestCase):
         self.assertEqual(nangles, self.N_ANGLES, f"nangles is incorrect: {nangles}.")
         editor.finalize()
 
-    @unittest.skip("temporary")
     def test_cropping(self):
         """"BdvEditor: crop a view in-place for all time points,
          and check if new H5 view size matches the XML view size."""
@@ -162,7 +161,7 @@ class TestTiligH5(unittest.TestCase):
 
     def setUp(self) -> None:
         self.test_dir = "./test/test_files/"
-        self.fname = self.test_dir + "test_t2_ch3_ill2_tiles2x2_ang2.h5"
+        self.fname = self.test_dir + "test_H5_t2_ch3_ill2_tiles2x2_ang2.h5"
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
 
@@ -212,7 +211,7 @@ class TestTiligH5(unittest.TestCase):
                                                    voxel_size_xyz=(1, 1, 4),
                                                    m_affine=affine_matrix,
                                                    name_affine=f"tile {i_tile} translation")
-        bdv_writer.write_xml_file(ntimes=self.N_T)
+        bdv_writer.write_xml(ntimes=self.N_T)
         bdv_writer.close()
 
     def test_h5_tiling(self):

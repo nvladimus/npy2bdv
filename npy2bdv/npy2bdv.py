@@ -184,11 +184,10 @@ class BdvWriter:
             exposure_units: str, optional
                 Time units for this view, default "s".
         """
-
-        assert len(calibration) == 3, "Calibration must be a tuple of 3 elements (x, y, z)."
-        assert len(voxel_size_xyz) == 3, "Voxel size must be a tuple of 3 elements (x, y, z)."
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         self._update_setup_id_present(isetup, time)
+        assert len(calibration) == 3, "Calibration must be a tuple of 3 elements (x, y, z)."
+        assert len(voxel_size_xyz) == 3, "Voxel size must be a tuple of 3 elements (x, y, z)."
         if stack is not None:
             assert len(stack.shape) == 3, "Stack should be a 3-dimensional numpy array (z,y,x)"
             self.stack_shapes[isetup] = stack.shape
@@ -208,37 +207,42 @@ class BdvWriter:
         self.exposure_units[isetup] = exposure_units
 
         if self.file_format == 'h5':
-            for ilevel in range(self.nlevels):
-                group_name = self._fmt.format(time, isetup, ilevel)
-                if group_name in self.file_object:
-                    del self.file_object[group_name]
-                grp = self.file_object.create_group(group_name)
-                if stack is not None:
-                    subdata = self._subsample_stack(stack, self.subsamp_zyx[ilevel]).astype('int16')
-                    grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
-                                           maxshape=(None, None, None), compression=self.compression, dtype='int16')
-                else:  # a large virtual stack initialized
-                    assert self.subsamp_zyx[ilevel][0] == 1, "Virtual stacks must have z-subsampling == 1," \
-                                                         " eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16))."
-                    grp.create_dataset('cells', chunks=self.chunks[ilevel],
-                                       shape=virtual_stack_dim // self.subsamp_zyx[ilevel],
-                                       compression=self.compression, dtype='int16')
+            self._write_h5_dataset(stack, isetup, time)
         else:
             self._write_n5_dataset(stack, isetup, time)
 
-    def _write_n5_dataset(self, stack, isetup, time, type='uint16'):
+    def _write_h5_dataset(self, stack, isetup, time, dtype='int16'):
+        """Write the view (stack) as N5 dataset in BigDataViewer format.
+        Note that type must be int16, rather than uint16, for correct reading by Fiji (a bug?)"""
+        for ilevel in range(self.nlevels):
+            group_name = self._fmt.format(time, isetup, ilevel)
+            if group_name in self.file_object:
+                del self.file_object[group_name]
+            grp = self.file_object.create_group(group_name)
+            if stack is not None: # real stack, written in one go
+                subdata = self._subsample_stack(stack, self.subsamp_zyx[ilevel]).astype(dtype)
+                grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
+                                   maxshape=(None, None, None), compression=self.compression, dtype=dtype)
+            else:  # virtual stack initialization
+                assert self.subsamp_zyx[ilevel][0] == 1, "Virtual stacks must have z-subsampling == 1," \
+                                                         " eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16))."
+                grp.create_dataset('cells', chunks=self.chunks[ilevel],
+                                   shape=virtual_stack_dim // self.subsamp_zyx[ilevel],
+                                   compression=self.compression, dtype=dtype)
+
+    def _write_n5_dataset(self, stack, isetup, time, dtype='uint16'):
         """Write the view (stack) as N5 dataset in BigDataViewer format"""
         grp = self.file_object.create_group(f"setup{isetup}/timepoint{time}")
         self.file_object[f"setup{isetup}"].attrs['downsamplingFactors'] = np.flip(self.subsamp_zyx, 1).tolist()
-        self.file_object[f"setup{isetup}"].attrs['dataType'] = type
+        self.file_object[f"setup{isetup}"].attrs['dataType'] = dtype
         self.file_object[f"setup{isetup}/timepoint{time}"].attrs["resolution"] = list(self.voxel_size_xyz[isetup])
         self.file_object[f"setup{isetup}/timepoint{time}"].attrs["saved_completely"] = True
         self.file_object[f"setup{isetup}/timepoint{time}"].attrs["multiScale"] = True
         if stack is not None:
             for ilevel in range(self.nlevels):
-                subdata = self._subsample_stack(stack, self.subsamp_zyx[ilevel]).astype(type)
+                subdata = self._subsample_stack(stack, self.subsamp_zyx[ilevel]).astype(dtype)
                 grp.create_dataset(f"s{ilevel}", data=subdata, chunks=self.chunks[ilevel],
-                                   compression=self.compression, dtype=type)
+                                   compression=self.compression, dtype=dtype)
                 self.file_object[f"setup{isetup}/timepoint{time}/s{ilevel}"].attrs['downsamplingFactors'] = \
                     np.flip(self.subsamp_zyx[ilevel]).tolist()
 
@@ -257,7 +261,7 @@ class BdvWriter:
         return chunks_tuple
 
     def _subsample_stack(self, stack, subsamp_level):
-        """Subsampling of 3d stack.
+        """Subsampling of a 3d stack.
         
         Parameters:
         -----------
@@ -293,21 +297,22 @@ class BdvWriter:
             plane_sub = skimage.transform.downscale_local_mean(plane, tuple(subsamp_level[1:])).astype(np.uint16)
         return plane_sub
 
-    def write_xml_file(self, ntimes=1,
-                       camera_name="default",  microscope_name="default",
-                       microscope_version="0.0", user_name="user"):
+    def write_xml(self, ntimes=1,
+                  camera_name="camera", microscope_name="SPIM1",
+                  microscope_version="0.0", user_name="user1"):
         """
         Write XML header file for the HDF5 file.
+        The camera-related view attributes will be written only if `camera_name` is not None.
 
         Parameters:
         -----------
             ntimes: int
                 Number of time points
-            camera_name: str, optional
+            camera_name: None or str, optional
                 Name of the camera (same for all setups at the moment)
-            microscope_name: str, optional
-            microscope_version: str, optional
-            user_name: str, optional
+            microscope_name: None or str, optional
+            microscope_version: None or str, optional
+            user_name: None or str, optional
         """
         assert ntimes >= 1, "Total number of time points must be at least 1."
         root = ET.Element('SpimData')
@@ -320,10 +325,13 @@ class BdvWriter:
         library = ET.SubElement(generator, 'library')
         library.set('version', self.__version__)
         library.text = "npy2bdv"
-        microscope = ET.SubElement(generator, 'microscope')
-        ET.SubElement(microscope, 'name').text = microscope_name
-        ET.SubElement(microscope, 'version').text = microscope_version
-        ET.SubElement(microscope, 'user').text = user_name
+        if microscope_name:
+            microscope = ET.SubElement(generator, 'microscope')
+            ET.SubElement(microscope, 'name').text = microscope_name
+            if microscope_version:
+                ET.SubElement(microscope, 'version').text = microscope_version
+            if user_name:
+                ET.SubElement(microscope, 'user').text = user_name
         # end of new XML data
 
         seqdesc = ET.SubElement(root, 'SequenceDescription')
@@ -331,7 +339,7 @@ class BdvWriter:
         if self.file_format == 'h5':
             imgload.set('format', 'bdv.hdf5')
             el = ET.SubElement(imgload, 'hdf5')
-        else: # N5
+        else:
             imgload.set('format', 'bdv.n5')
             imgload.set('version', '1.0')
             el = ET.SubElement(imgload, 'n5')
@@ -355,10 +363,11 @@ class BdvWriter:
                             dx, dy, dz = self.voxel_size_xyz[isetup]
                             ET.SubElement(vox, 'size').text = '{} {} {}'.format(dx, dy, dz)
                             # new XML data, added by @nvladimus
-                            cam = ET.SubElement(vs, 'camera')
-                            ET.SubElement(cam, 'name').text = camera_name
-                            ET.SubElement(cam, 'exposureTime').text = '{}'.format(self.exposure_time[isetup])
-                            ET.SubElement(cam, 'exposureUnits').text = self.exposure_units[isetup]
+                            if camera_name:
+                                cam = ET.SubElement(vs, 'camera')
+                                ET.SubElement(cam, 'name').text = camera_name
+                                ET.SubElement(cam, 'exposureTime').text = '{}'.format(self.exposure_time[isetup])
+                                ET.SubElement(cam, 'exposureUnits').text = self.exposure_units[isetup]
                             # end of new XML data
                             a = ET.SubElement(vs, 'attributes')
                             ET.SubElement(a, 'illumination').text = str(iillumination)
