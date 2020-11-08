@@ -6,13 +6,16 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
  
  ## Installation
- Optional: if you will use `n5` or `zarr` formats, install [`z5py`](https://github.com/constantinpape/z5) first in a new conda environment:
+ Optional: create a new conda environment
+  ```
+    conda create --name npy2bdv
+    conda activae npy2bdv
+  ```
+Install dependency library [`z5py`](https://github.com/constantinpape/z5):
  ```
-    conda create --name z5
-    conda activae z5
     conda install -c conda-forge z5py
 ```
- Run `pip install npy2bdv` in the command line. Use `import npy2bdv` in the code.
+ Run `pip install npy2bdv` in the command line. 
  
  ## Documentation
 For a quick start, see examples in the Jupyter [`notebook`](/npy2bdv/docs/examples_h5.ipynb).
@@ -20,9 +23,15 @@ For a quick start, see examples in the Jupyter [`notebook`](/npy2bdv/docs/exampl
 API [reference](https://nvladimus.github.io/npy2bdv/).
 
 [Recent changes](CHANGELOG.md)
+ - N5 support, including compression.
+ - The H5/XML datasets can be edited in-place, e.g. by cropping selected views in `x,y,z`, 
+ and appending affine transforms to XML. 
  
+
+
  ## Supported writing options
- * compression methods `None`, `gzip`, `lzf` (`None` by default).
+ * H5 compression methods `None`, `gzip`, `lzf`.
+ * N5 compression methods `None`, `gzip`, `xz`.
  * downsampling options: 
     - any number of mipmap levels
     - computed via averaging, compatible with BigDataViewer/BigStitcher convention.
@@ -32,17 +41,12 @@ API [reference](https://nvladimus.github.io/npy2bdv/).
  * arbitrary voxel calibration for each view, to account for spatial anisotropy.
  * individual views can differ in dimensions, voxel size, voxel units, exposure time, and exposure units.
  * missing views are labeled in XML automatically.
- * support of additiona meta-information:
+ * support of additional meta-information:
     - camera properties: `name`, `exposureTime`, `exposureUnits`
     - `microscope` (name and version), `user`
- * writing virtual stacks of arbitrary size plane-by-plane. Handy when your stack is larger than your RAM.
+ * writing virtual stacks of arbitrary size plane-by-plane (currently H5 only). Useful when your stack is larger than your RAM.
     - virtual stacks can be written with multiple subsampling levels and compression.
     
- ## New features
- - The H5/XML datasets can now be **edited** in-place, e.g. by cropping selected views in `x,y,z`, 
- and appending affine transforms to XML. Examples coming soon.
-
- 
  ## Writing speed
 Writing speeds up to 2300 MB/s can be achieved on a PC with SSD drive. 
 The speed of writing for long time series (>100 stacks) is typically about 700-900 MB/s. 

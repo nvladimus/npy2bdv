@@ -20,8 +20,7 @@ class BdvWriter:
                  overwrite=False,
                  format='h5'):
         """Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher compatible dataset.
-        Currently implemented formats: H5 (raw or compressed) and N5 (raw).
-
+        Currently implemented formats: H5, N5.
 
         Parameters:
         -----------
@@ -33,7 +32,7 @@ class BdvWriter:
                 Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),), see notes.
             compression: None or str
                 H5 compression options: (None, 'gzip', 'lzf'), Default is None for high-speed writing.
-                N5 compression: Todo: ('raw', 'blosc', 'gzip', 'bzip2', 'xz', 'lz4')
+                N5 compression: (None, 'gzip', 'xz'), default is None (raw).
             nilluminations: int
             nchannels: int
             ntiles: int
@@ -93,18 +92,20 @@ class BdvWriter:
                 raise FileExistsError(f"File {self.filename} already exists.")
         if self.file_format == 'h5':
             self.file_object = h5py.File(filename, 'a')
+            assert compression in (None, 'gzip', 'lzf'), f'H5 compression unknown: {compression}'
             self.compression = compression
-            self._write_setups_header()
+            self._write_H5_headers()
         elif self.file_format == 'n5':
             self.file_object = z5py.File(filename[:-2] + 'n5', 'a')
-            if compression is None:
-                self.compression = 'raw'
+            assert compression in (None, 'gzip', 'xz'), \
+                f'N5 compression unknown: {compression}'
+            self.compression = 'raw' if compression is None else compression
         else:
             raise ValueError("File format unknown")
         self.virtual_stacks = False
         self.setup_id_present = [[False] * self.nsetups]
 
-    def _write_setups_header(self):
+    def _write_H5_headers(self):
         """Write resolutions and subdivisions for all setups into h5 file."""
         for isetup in range(self.nsetups):
             group_name = 's{:02d}'.format(isetup)

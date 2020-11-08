@@ -22,8 +22,9 @@ class TestWriteN5(unittest.TestCase):
         self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 3, 2, 4, 2
         self.SUBSAMPLING_ZYX = ((1, 1, 1), (4, 2, 2))
         self.BLOCKDIM_ZYX = ((2, 64, 64), (4, 128, 128))
-        self.stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
+        self.COMPRESSION = 'gzip' # (None, 'gzip', 'xz')
 
+        self.stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
         for z in range(self.NZ):
             self.stack[z, :, :] = generate_test_image((self.NY, self.NX), z, self.NZ)
 
@@ -33,8 +34,9 @@ class TestWriteN5(unittest.TestCase):
                                        nchannels=self.N_CH,
                                        nilluminations=self.N_ILL,
                                        ntiles=self.N_TILES,
-                                       nangles=self.N_ANGLES, overwrite=True,
-                                       compression=None,
+                                       nangles=self.N_ANGLES,
+                                       overwrite=True,
+                                       compression=self.COMPRESSION,
                                        format='n5')
         for t in range(self.N_T):
             for i_ch in range(self.N_CH):
@@ -73,6 +75,7 @@ class TestWriteN5Tiles(unittest.TestCase):
         self.NZ, self.NY, self.NX = 8, 512, 512
         self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 3, 2, 4, 2
         self.stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
+        self.COMPRESSION = None  # (None, 'gzip', 'xz')
 
         for z in range(self.NZ):
             self.stack[z, :, :] = generate_test_image((self.NY, self.NX), z, self.NZ)
@@ -83,7 +86,7 @@ class TestWriteN5Tiles(unittest.TestCase):
                                        ntiles=self.N_TILES,
                                        nangles=self.N_ANGLES,
                                        overwrite=True,
-                                       compression=None,
+                                       compression=self.COMPRESSION,
                                        format='n5')
         # split the samples blob into tiles, and set their absolute coordinates when writing
         n_tiles_y = self.N_TILES // 2

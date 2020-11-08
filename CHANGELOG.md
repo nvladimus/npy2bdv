@@ -1,5 +1,5 @@
 ## v.1.1 candidate
-- :gem: **N5 writing added**: simply put `BdvWriter(...,format='n5')` and voila, nejoy the new format.
+- :gem: **N5 writing added**: simply put `BdvWriter(...,format='n5')` and voila, enjoy the new format.
 - :gem: `BdvEditor.append_affine()`: affine transformation can be appended to an existing dataset (before, it was only possible when creating a new dataset via `BdvWriter.write_xml_file()`). 
 - :mag: **Test coverage**: The tests became much more comprehensive and cover most of the functionality.
 ### API changes :exclamation:
