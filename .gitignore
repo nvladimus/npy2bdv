@@ -10,6 +10,7 @@ __pycache__/
 *.so
 
 /test/test_files
+/docs/examples/example_files
 
 # Distribution / packaging
 .packaging.bat

@@ -121,6 +121,7 @@ class BdvWriter:
     def append_plane(self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0):
         """Append a plane to a virtual stack. Requires stack initialization by calling e.g.
         `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
+        Todo: implement for N5.
 
         Parameters:
         -----------
@@ -154,7 +155,7 @@ class BdvWriter:
                     voxel_size_xyz=(1, 1, 1), voxel_units='px', calibration=(1, 1, 1),
                     exposure_time=0, exposure_units='s'):
         """
-        Write 3-dimensional numpy array (stack) to the h5 file with the specified timepoint `itime` and attributes.
+        Write 3-dimensional numpy array (stack) to the dataset (H5 or N5) with specified attributes.
 
         Parameters:
         -----------

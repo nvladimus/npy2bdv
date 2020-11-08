@@ -35,28 +35,32 @@ import numpy as np
 from xml.etree import ElementTree as ET
 import skimage.transform
 import shutil
+import z5py
 
 class BdvWriter:
-    __version__ = &#34;2020.10&#34;
+    __version__ = &#34;1.0.2&#34;
 
     def __init__(self, filename,
-                 subsamp=((1, 1, 1),),
+                 subsamp_zyx=((1, 1, 1),),
                  blockdim=((4, 256, 256),),
                  compression=None,
                  nilluminations=1, nchannels=1, ntiles=1, nangles=1,
-                 overwrite=False):
-        &#34;&#34;&#34;Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.
+                 overwrite=False,
+                 format=&#39;h5&#39;):
+        &#34;&#34;&#34;Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher compatible dataset.
+        Currently implemented formats: H5, N5.
 
         Parameters:
         -----------
             filename: string
-                File name (full path).
-            subsamp: tuple of tuples
+                Name of the N5 or H5 file to create (full path).
+            subsamp_zyx: tuple of tuples
                 Subsampling levels in (z,y,x) order. Integers &gt;= 1, default value ((1, 1, 1),) for no subsampling.
             blockdim: tuple of tuples
                 Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),), see notes.
             compression: None or str
-                (None, &#39;gzip&#39;, &#39;lzf&#39;), HDF5 compression method. Default is None for high-speed writing.
+                H5 compression options: (None, &#39;gzip&#39;, &#39;lzf&#39;), Default is None for high-speed writing.
+                N5 compression: (None, &#39;gzip&#39;, &#39;xz&#39;), default is None (raw).
             nilluminations: int
             nchannels: int
             ntiles: int
@@ -64,6 +68,8 @@ class BdvWriter:
                 Number of view attributes, &gt;=1.
             overwrite: boolean
                 If True, overwrite existing file. Default False.
+            format: str
+                Data format to use: &#39;h5&#39; (default), &#39;n5&#39;.
 
         .. note::
         ------
@@ -77,11 +83,10 @@ class BdvWriter:
         assert nchannels &gt;= 1, &#34;Total number of channels must be at least 1.&#34;
         assert ntiles &gt;= 1, &#34;Total number of tiles must be at least 1.&#34;
         assert nangles &gt;= 1, &#34;Total number of angles must be at least 1.&#34;
-        assert compression in (None, &#39;gzip&#39;, &#39;lzf&#39;), &#39;Unknown compression type&#39;
-        assert all([isinstance(element, int) for tupl in subsamp for element in
+        assert all([isinstance(element, int) for tupl in subsamp_zyx for element in
                     tupl]), &#39;subsamp values should be integers &gt;= 1.&#39;
-        if len(blockdim) &lt; len(subsamp):
-            print(f&#34;INFO: blockdim levels ({len(blockdim)}) &lt; subsamp levels ({len(subsamp)}):&#34;
+        if len(blockdim) &lt; len(subsamp_zyx):
+            print(f&#34;INFO: blockdim levels ({len(blockdim)}) &lt; subsamp levels ({len(subsamp_zyx)}):&#34;
                   f&#34; First-level block size {blockdim[0]} will be used for all levels&#34;)
         self._fmt = &#39;t{:05d}/s{:02d}/{}&#39;
         self.nsetups = nilluminations * nchannels * ntiles * nangles
@@ -89,8 +94,8 @@ class BdvWriter:
         self.nchannels = nchannels
         self.ntiles = ntiles
         self.nangles = nangles
-        self.subsamp = np.asarray(subsamp)
-        self.nlevels = len(subsamp)
+        self.subsamp_zyx = np.asarray(subsamp_zyx)
+        self.nlevels = len(subsamp_zyx)
         self.chunks = self._compute_chunk_size(blockdim)
         self.stack_shapes = {}
         self.affine_matrices = {}
@@ -98,37 +103,54 @@ class BdvWriter:
         self.calibrations = {}
         self.voxel_size_xyz = {}
         self.voxel_units = {}
+        self.virtual_stack_dim = {}
         self.exposure_time = {}
         self.exposure_units = {}
-        self.compression = compression
         self.filename = filename
+        self.file_format = format
+        self.compression = None
         if os.path.exists(self.filename):
             if overwrite:
-                os.remove(self.filename)
-                print(&#34;Warning: H5 file already exists, overwriting.&#34;)
+                if self.file_format == &#39;h5&#39;:
+                    os.remove(self.filename)
+                    print(&#34;Warning: H5 file already exists, overwriting.&#34;)
+                elif self.file_format == &#39;n5&#39;:
+                    shutil.rmtree(self.filename)
+                    print(&#34;Warning: N5 dataset already exists, overwriting.&#34;)
             else:
                 raise FileExistsError(f&#34;File {self.filename} already exists.&#34;)
-        self.file_object = h5py.File(filename, &#39;a&#39;)
-        self._write_setups_header()
+        if self.file_format == &#39;h5&#39;:
+            self.file_object = h5py.File(filename, &#39;a&#39;)
+            assert compression in (None, &#39;gzip&#39;, &#39;lzf&#39;), f&#39;H5 compression unknown: {compression}&#39;
+            self.compression = compression
+            self._write_H5_headers()
+        elif self.file_format == &#39;n5&#39;:
+            self.file_object = z5py.File(filename[:-2] + &#39;n5&#39;, &#39;a&#39;)
+            assert compression in (None, &#39;gzip&#39;, &#39;xz&#39;), \
+                f&#39;N5 compression unknown: {compression}&#39;
+            self.compression = &#39;raw&#39; if compression is None else compression
+        else:
+            raise ValueError(&#34;File format unknown&#34;)
         self.virtual_stacks = False
         self.setup_id_present = [[False] * self.nsetups]
 
-    def _write_setups_header(self):
+    def _write_H5_headers(self):
         &#34;&#34;&#34;Write resolutions and subdivisions for all setups into h5 file.&#34;&#34;&#34;
         for isetup in range(self.nsetups):
             group_name = &#39;s{:02d}&#39;.format(isetup)
             if group_name in self.file_object:
                 del self.file_object[group_name]
             grp = self.file_object.create_group(group_name)
-            data_subsamp = np.flip(self.subsamp, 1)
-            data_chunks = np.flip(self.chunks, 1)
+            data_subsamp = np.flip(self.subsamp_zyx, 1).astype(&#39;float64&#39;)
+            data_chunks = np.flip(self.chunks, 1).astype(&#39;int32&#39;)
             grp.create_dataset(&#39;resolutions&#39;, data=data_subsamp, dtype=&#39;&lt;f8&#39;)
             grp.create_dataset(&#39;subdivisions&#39;, data=data_chunks, dtype=&#39;&lt;i4&#39;)
 
     def append_plane(self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0):
         &#34;&#34;&#34;Append a plane to a virtual stack. Requires stack initialization by calling e.g.
         `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
-        
+        Todo: implement for N5.
+
         Parameters:
         -----------
             plane: array_like
@@ -143,7 +165,7 @@ class BdvWriter:
             angle: int
                 Indices of the view attributes, &gt;=0.
         &#34;&#34;&#34;
-        
+
         assert self.virtual_stacks, &#34;Appending planes requires initialization with virtual stack, &#34; \
                                     &#34;see append_view(stack=None,...)&#34;
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
@@ -153,7 +175,7 @@ class BdvWriter:
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self.file_object[group_name][&#34;cells&#34;]
-            dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype(&#39;int16&#39;)
+            dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp_zyx[ilevel]).astype(&#39;int16&#39;)
 
     def append_view(self, stack, virtual_stack_dim=None,
                     time=0, illumination=0, channel=0, tile=0, angle=0,
@@ -161,8 +183,8 @@ class BdvWriter:
                     voxel_size_xyz=(1, 1, 1), voxel_units=&#39;px&#39;, calibration=(1, 1, 1),
                     exposure_time=0, exposure_units=&#39;s&#39;):
         &#34;&#34;&#34;
-        Write 3-dimensional numpy array (stack) to the h5 file with the specified timepoint `itime` and attributes.
-        
+        Write 3-dimensional numpy array (stack) to the dataset (H5 or N5) with specified attributes.
+
         Parameters:
         -----------
             stack: numpy array (uint16) or None
@@ -193,42 +215,68 @@ class BdvWriter:
             exposure_units: str, optional
                 Time units for this view, default &#34;s&#34;.
         &#34;&#34;&#34;
-        
-        assert len(calibration) == 3, &#34;Calibration must be a tuple of 3 elements (x, y, z).&#34;
-        assert len(voxel_size_xyz) == 3, &#34;Voxel size must be a tuple of 3 elements (x, y, z).&#34;
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         self._update_setup_id_present(isetup, time)
+        assert len(calibration) == 3, &#34;Calibration must be a tuple of 3 elements (x, y, z).&#34;
+        assert len(voxel_size_xyz) == 3, &#34;Voxel size must be a tuple of 3 elements (x, y, z).&#34;
         if stack is not None:
             assert len(stack.shape) == 3, &#34;Stack should be a 3-dimensional numpy array (z,y,x)&#34;
             self.stack_shapes[isetup] = stack.shape
         else:
+            assert self.file_format == &#39;h5&#39;, &#34;Only H5 is currently implemented for virtual stack writing.&#34;
             assert len(virtual_stack_dim) == 3, &#34;Stack is virtual, so parameter virtual_stack_dim must be defined.&#34;
             self.stack_shapes[isetup] = virtual_stack_dim
             self.virtual_stacks = True
 
-        for ilevel in range(self.nlevels):
-            group_name = self._fmt.format(time, isetup, ilevel)
-            if group_name in self.file_object:
-                del self.file_object[group_name]
-            grp = self.file_object.create_group(group_name)
-            if stack is not None:
-                subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype(&#39;int16&#39;)
-                grp.create_dataset(&#39;cells&#39;, data=subdata, chunks=self.chunks[ilevel],
-                                   maxshape=(None, None, None), compression=self.compression, dtype=&#39;int16&#39;)
-            else:  # a large virtual stack initialized
-                assert self.subsamp[ilevel][0] == 1, &#34;Virtual stacks must have z-subsampling == 1,&#34; \
-                                                     &#34; eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16)).&#34;
-                grp.create_dataset(&#39;cells&#39;, chunks=self.chunks[ilevel],
-                                   shape=virtual_stack_dim // self.subsamp[ilevel],
-                                   compression=self.compression, dtype=&#39;int16&#39;)
         if m_affine is not None:
             self.affine_matrices[isetup] = m_affine.copy()
             self.affine_names[isetup] = name_affine
+        self.virtual_stack_dim[isetup] = virtual_stack_dim
         self.calibrations[isetup] = calibration
         self.voxel_size_xyz[isetup] = voxel_size_xyz
         self.voxel_units[isetup] = voxel_units
         self.exposure_time[isetup] = exposure_time
         self.exposure_units[isetup] = exposure_units
+
+        if self.file_format == &#39;h5&#39;:
+            self._write_h5_dataset(stack, isetup, time)
+        else:
+            self._write_n5_dataset(stack, isetup, time)
+
+    def _write_h5_dataset(self, stack, isetup, time, dtype=&#39;int16&#39;):
+        &#34;&#34;&#34;Write the view (stack) as N5 dataset in BigDataViewer format.
+        Note that type must be int16, rather than uint16, for correct reading by Fiji (a bug?)&#34;&#34;&#34;
+        for ilevel in range(self.nlevels):
+            group_name = self._fmt.format(time, isetup, ilevel)
+            if group_name in self.file_object:
+                del self.file_object[group_name]
+            grp = self.file_object.create_group(group_name)
+            if stack is not None: # real stack, written in one go
+                subdata = self._subsample_stack(stack, self.subsamp_zyx[ilevel]).astype(dtype)
+                grp.create_dataset(&#39;cells&#39;, data=subdata, chunks=self.chunks[ilevel],
+                                   maxshape=(None, None, None), compression=self.compression, dtype=dtype)
+            else:  # virtual stack initialization
+                assert self.subsamp_zyx[ilevel][0] == 1, &#34;Virtual stacks must have z-subsampling == 1,&#34; \
+                                                         &#34; eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16)).&#34;
+                grp.create_dataset(&#39;cells&#39;, chunks=self.chunks[ilevel],
+                                   shape=self.virtual_stack_dim[isetup] // self.subsamp_zyx[ilevel],
+                                   compression=self.compression, dtype=dtype)
+
+    def _write_n5_dataset(self, stack, isetup, time, dtype=&#39;uint16&#39;):
+        &#34;&#34;&#34;Write the view (stack) as N5 dataset in BigDataViewer format&#34;&#34;&#34;
+        grp = self.file_object.create_group(f&#34;setup{isetup}/timepoint{time}&#34;)
+        self.file_object[f&#34;setup{isetup}&#34;].attrs[&#39;downsamplingFactors&#39;] = np.flip(self.subsamp_zyx, 1).tolist()
+        self.file_object[f&#34;setup{isetup}&#34;].attrs[&#39;dataType&#39;] = dtype
+        self.file_object[f&#34;setup{isetup}/timepoint{time}&#34;].attrs[&#34;resolution&#34;] = list(self.voxel_size_xyz[isetup])
+        self.file_object[f&#34;setup{isetup}/timepoint{time}&#34;].attrs[&#34;saved_completely&#34;] = True
+        self.file_object[f&#34;setup{isetup}/timepoint{time}&#34;].attrs[&#34;multiScale&#34;] = True
+        if stack is not None:
+            for ilevel in range(self.nlevels):
+                subdata = self._subsample_stack(stack, self.subsamp_zyx[ilevel]).astype(dtype)
+                grp.create_dataset(f&#34;s{ilevel}&#34;, data=subdata, chunks=self.chunks[ilevel],
+                                   compression=self.compression, dtype=dtype)
+                self.file_object[f&#34;setup{isetup}/timepoint{time}/s{ilevel}&#34;].attrs[&#39;downsamplingFactors&#39;] = \
+                    np.flip(self.subsamp_zyx[ilevel]).tolist()
 
     def _compute_chunk_size(self, blockdim):
         &#34;&#34;&#34;Populate the size of h5 chunks.
@@ -236,8 +284,8 @@ class BdvWriter:
         &#34;&#34;&#34;
         chunks = []
         base_level = blockdim[0]
-        if len(blockdim) &lt; len(self.subsamp):
-            for ilevel in range(len(self.subsamp)):
+        if len(blockdim) &lt; len(self.subsamp_zyx):
+            for ilevel in range(len(self.subsamp_zyx)):
                 chunks.append(base_level)
             chunks_tuple = tuple(chunks)
         else:
@@ -245,7 +293,7 @@ class BdvWriter:
         return chunks_tuple
 
     def _subsample_stack(self, stack, subsamp_level):
-        &#34;&#34;&#34;Subsampling of 3d stack.
+        &#34;&#34;&#34;Subsampling of a 3d stack.
         
         Parameters:
         -----------
@@ -281,21 +329,22 @@ class BdvWriter:
             plane_sub = skimage.transform.downscale_local_mean(plane, tuple(subsamp_level[1:])).astype(np.uint16)
         return plane_sub
 
-    def write_xml_file(self, ntimes=1,
-                       camera_name=&#34;default&#34;,  microscope_name=&#34;default&#34;,
-                       microscope_version=&#34;0.0&#34;, user_name=&#34;user&#34;):
+    def write_xml(self, ntimes=1,
+                  camera_name=&#34;camera&#34;, microscope_name=&#34;SPIM1&#34;,
+                  microscope_version=&#34;0.0&#34;, user_name=&#34;user1&#34;):
         &#34;&#34;&#34;
         Write XML header file for the HDF5 file.
+        The camera-related view attributes will be written only if `camera_name` is not None.
 
         Parameters:
         -----------
             ntimes: int
                 Number of time points
-            camera_name: str, optional
+            camera_name: None or str, optional
                 Name of the camera (same for all setups at the moment)
-            microscope_name: str, optional
-            microscope_version: str, optional
-            user_name: str, optional
+            microscope_name: None or str, optional
+            microscope_version: None or str, optional
+            user_name: None or str, optional
         &#34;&#34;&#34;
         assert ntimes &gt;= 1, &#34;Total number of time points must be at least 1.&#34;
         root = ET.Element(&#39;SpimData&#39;)
@@ -308,16 +357,24 @@ class BdvWriter:
         library = ET.SubElement(generator, &#39;library&#39;)
         library.set(&#39;version&#39;, self.__version__)
         library.text = &#34;npy2bdv&#34;
-        microscope = ET.SubElement(generator, &#39;microscope&#39;)
-        ET.SubElement(microscope, &#39;name&#39;).text = microscope_name
-        ET.SubElement(microscope, &#39;version&#39;).text = microscope_version
-        ET.SubElement(microscope, &#39;user&#39;).text = user_name
+        if microscope_name:
+            microscope = ET.SubElement(generator, &#39;microscope&#39;)
+            ET.SubElement(microscope, &#39;name&#39;).text = microscope_name
+            if microscope_version:
+                ET.SubElement(microscope, &#39;version&#39;).text = microscope_version
+            if user_name:
+                ET.SubElement(microscope, &#39;user&#39;).text = user_name
         # end of new XML data
 
         seqdesc = ET.SubElement(root, &#39;SequenceDescription&#39;)
         imgload = ET.SubElement(seqdesc, &#39;ImageLoader&#39;)
-        imgload.set(&#39;format&#39;, &#39;bdv.hdf5&#39;)
-        el = ET.SubElement(imgload, &#39;hdf5&#39;)
+        if self.file_format == &#39;h5&#39;:
+            imgload.set(&#39;format&#39;, &#39;bdv.hdf5&#39;)
+            el = ET.SubElement(imgload, &#39;hdf5&#39;)
+        else:
+            imgload.set(&#39;format&#39;, &#39;bdv.n5&#39;)
+            imgload.set(&#39;version&#39;, &#39;1.0&#39;)
+            el = ET.SubElement(imgload, &#39;n5&#39;)
         el.set(&#39;type&#39;, &#39;relative&#39;)
         el.text = os.path.basename(self.filename)
         # write ViewSetups
@@ -338,10 +395,11 @@ class BdvWriter:
                             dx, dy, dz = self.voxel_size_xyz[isetup]
                             ET.SubElement(vox, &#39;size&#39;).text = &#39;{} {} {}&#39;.format(dx, dy, dz)
                             # new XML data, added by @nvladimus
-                            cam = ET.SubElement(vs, &#39;camera&#39;)
-                            ET.SubElement(cam, &#39;name&#39;).text = camera_name
-                            ET.SubElement(cam, &#39;exposureTime&#39;).text = &#39;{}&#39;.format(self.exposure_time[isetup])
-                            ET.SubElement(cam, &#39;exposureUnits&#39;).text = self.exposure_units[isetup]
+                            if camera_name:
+                                cam = ET.SubElement(vs, &#39;camera&#39;)
+                                ET.SubElement(cam, &#39;name&#39;).text = camera_name
+                                ET.SubElement(cam, &#39;exposureTime&#39;).text = &#39;{}&#39;.format(self.exposure_time[isetup])
+                                ET.SubElement(cam, &#39;exposureUnits&#39;).text = self.exposure_units[isetup]
                             # end of new XML data
                             a = ET.SubElement(vs, &#39;attributes&#39;)
                             ET.SubElement(a, &#39;illumination&#39;).text = str(iillumination)
@@ -451,23 +509,25 @@ class BdvWriter:
         self.setup_id_present[itime][isetup] = True
 
     def close(self):
-        &#34;&#34;&#34;Save changes and close the H5 file.&#34;&#34;&#34;
-        self.file_object.close()
+        &#34;&#34;&#34;Save changes and close the data file if needed.&#34;&#34;&#34;
+        if self.file_format == &#34;h5&#34;:
+            self.file_object.close()
 
 
 class BdvEditor:
-    __version__ = &#34;2020.10&#34;
+    __version__ = &#34;1.0.2&#34;
 
     def __init__(self, filename):
         &#34;&#34;&#34;
         Class for reading and editing existing H5/XML file pairs.
-        Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at your own risk.
+        Warning: Editing of H5/XML files occurs in-place, and there is currently no undo option. Use at your own risk.
+        Todo: add an option to save results as new XML file.
 
         Parameters:
         -----------
             filename: string,
                 Path to either .h5 or .xml file. The other file of the pair must be present
-                in the same folder, by convention.
+                in the same folder.
         &#34;&#34;&#34;
         self._fmt = &#39;t{:05d}/s{:02d}/{}&#39;
         if filename[-2:] == &#39;h5&#39;:
@@ -554,7 +614,7 @@ class BdvEditor:
                 if bbox_xyz[2]:
                     view_arr = view_arr[slice(*bbox_xyz[2]), :, :]
                 view_dataset.resize(view_arr.shape)
-                view_dataset = view_arr
+                view_dataset[:] = view_arr # Always use braces here! A common mistake to omit them.
                 self._file_object_h5.flush()
         else:
             raise FileNotFoundError(self.filename_h5)
@@ -619,24 +679,30 @@ class BdvEditor:
         value = tuple([type_caster(val) for val in props_list[isetup].text.split()])
         return value
 
-    def append_affine(self, time, isetup, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;):
-        &#34;&#34;&#34;&#34; Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+    def append_affine(self, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;,
+                      time=0, illumination=0, channel=0, tile=0, angle=0):
+        &#34;&#34;&#34;&#34; Append affine transformation to a view. This transformation will be placed on top,
+        e.g. executed by the BigStitcher last.
+        The transformation is defined as matrix of shape (3,4).
         Each column represents coordinate unit vectors after the transformation.
         The last column represents translation in (x,y,z).
-        Todo: Not tested yet!
 
         Parameters:
         -----------
             time: int
                 Time index, &gt;=0.
-            isetup: int
-                Setup index, &gt;=0.
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, &gt;= 0.
             m_affine: numpy array of shape (3,4)
                 Coefficients of affine transformation matrix (m00, m01, ...)
             name_affine: str, optional
                 Name of the affine transformation.
             &#34;&#34;&#34;
         self._get_xml_root()
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
         assert m_affine.shape == (3,4), &#34;m_affine must be a numpy array of shape (3,4)&#34;
         found = False
         for node in self._root.findall(&#39;./ViewRegistrations/ViewRegistration&#39;):
@@ -644,7 +710,8 @@ class BdvEditor:
                 found = True
                 break
         assert found, f&#39;Node not found: &lt;ViewRegistration setup=&#34;{isetup}&#34; timepoint=&#34;{time}&#34;&gt;&#39;
-        vt = ET.SubElement(node, &#39;ViewTransform&#39;)
+        vt = ET.Element(&#39;ViewTransform&#39;)
+        node.insert(0, vt)
         vt.set(&#39;type&#39;, &#39;affine&#39;)
         ET.SubElement(vt, &#39;Name&#39;).text = name_affine
         n_prec = 6
@@ -705,29 +772,31 @@ def _xml_indent(elem, level=0):
 </code></dt>
 <dd>
 <div class="desc"><p>Class for reading and editing existing H5/XML file pairs.
-Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at your own risk.</p>
+Warning: Editing of H5/XML files occurs in-place, and there is currently no undo option. Use at your own risk.
+Todo: add an option to save results as new XML file.</p>
 <h2 id="parameters">Parameters:</h2>
 <pre><code>filename: string,
     Path to either .h5 or .xml file. The other file of the pair must be present
-    in the same folder, by convention.
+    in the same folder.
 </code></pre></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class BdvEditor:
-    __version__ = &#34;2020.10&#34;
+    __version__ = &#34;1.0.2&#34;
 
     def __init__(self, filename):
         &#34;&#34;&#34;
         Class for reading and editing existing H5/XML file pairs.
-        Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at your own risk.
+        Warning: Editing of H5/XML files occurs in-place, and there is currently no undo option. Use at your own risk.
+        Todo: add an option to save results as new XML file.
 
         Parameters:
         -----------
             filename: string,
                 Path to either .h5 or .xml file. The other file of the pair must be present
-                in the same folder, by convention.
+                in the same folder.
         &#34;&#34;&#34;
         self._fmt = &#39;t{:05d}/s{:02d}/{}&#39;
         if filename[-2:] == &#39;h5&#39;:
@@ -814,7 +883,7 @@ Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at
                 if bbox_xyz[2]:
                     view_arr = view_arr[slice(*bbox_xyz[2]), :, :]
                 view_dataset.resize(view_arr.shape)
-                view_dataset = view_arr
+                view_dataset[:] = view_arr # Always use braces here! A common mistake to omit them.
                 self._file_object_h5.flush()
         else:
             raise FileNotFoundError(self.filename_h5)
@@ -879,24 +948,30 @@ Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at
         value = tuple([type_caster(val) for val in props_list[isetup].text.split()])
         return value
 
-    def append_affine(self, time, isetup, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;):
-        &#34;&#34;&#34;&#34; Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+    def append_affine(self, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;,
+                      time=0, illumination=0, channel=0, tile=0, angle=0):
+        &#34;&#34;&#34;&#34; Append affine transformation to a view. This transformation will be placed on top,
+        e.g. executed by the BigStitcher last.
+        The transformation is defined as matrix of shape (3,4).
         Each column represents coordinate unit vectors after the transformation.
         The last column represents translation in (x,y,z).
-        Todo: Not tested yet!
 
         Parameters:
         -----------
             time: int
                 Time index, &gt;=0.
-            isetup: int
-                Setup index, &gt;=0.
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, &gt;= 0.
             m_affine: numpy array of shape (3,4)
                 Coefficients of affine transformation matrix (m00, m01, ...)
             name_affine: str, optional
                 Name of the affine transformation.
             &#34;&#34;&#34;
         self._get_xml_root()
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
         assert m_affine.shape == (3,4), &#34;m_affine must be a numpy array of shape (3,4)&#34;
         found = False
         for node in self._root.findall(&#39;./ViewRegistrations/ViewRegistration&#39;):
@@ -904,7 +979,8 @@ Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at
                 found = True
                 break
         assert found, f&#39;Node not found: &lt;ViewRegistration setup=&#34;{isetup}&#34; timepoint=&#34;{time}&#34;&gt;&#39;
-        vt = ET.SubElement(node, &#39;ViewTransform&#39;)
+        vt = ET.Element(&#39;ViewTransform&#39;)
+        node.insert(0, vt)
         vt.set(&#39;type&#39;, &#39;affine&#39;)
         ET.SubElement(vt, &#39;Name&#39;).text = name_affine
         n_prec = 6
@@ -935,18 +1011,22 @@ Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at
 <h3>Methods</h3>
 <dl>
 <dt id="npy2bdv.npy2bdv.BdvEditor.append_affine"><code class="name flex">
-<span>def <span class="ident">append_affine</span></span>(<span>self, time, isetup, m_affine, name_affine='Appended affine transformation using npy2bdv.')</span>
+<span>def <span class="ident">append_affine</span></span>(<span>self, m_affine, name_affine='Appended affine transformation using npy2bdv.', time=0, illumination=0, channel=0, tile=0, angle=0)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>" Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+<div class="desc"><p>" Append affine transformation to a view. This transformation will be placed on top,
+e.g. executed by the BigStitcher last.
+The transformation is defined as matrix of shape (3,4).
 Each column represents coordinate unit vectors after the transformation.
-The last column represents translation in (x,y,z).
-Todo: Not tested yet!</p>
+The last column represents translation in (x,y,z).</p>
 <h2 id="parameters">Parameters:</h2>
 <pre><code>time: int
     Time index, &gt;=0.
-isetup: int
-    Setup index, &gt;=0.
+illumination: int
+channel: int
+tile: int
+angle: int
+    Indices of the view attributes, &gt;= 0.
 m_affine: numpy array of shape (3,4)
     Coefficients of affine transformation matrix (m00, m01, ...)
 name_affine: str, optional
@@ -956,24 +1036,30 @@ name_affine: str, optional
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def append_affine(self, time, isetup, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;):
-    &#34;&#34;&#34;&#34; Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+<pre><code class="python">def append_affine(self, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;,
+                  time=0, illumination=0, channel=0, tile=0, angle=0):
+    &#34;&#34;&#34;&#34; Append affine transformation to a view. This transformation will be placed on top,
+    e.g. executed by the BigStitcher last.
+    The transformation is defined as matrix of shape (3,4).
     Each column represents coordinate unit vectors after the transformation.
     The last column represents translation in (x,y,z).
-    Todo: Not tested yet!
 
     Parameters:
     -----------
         time: int
             Time index, &gt;=0.
-        isetup: int
-            Setup index, &gt;=0.
+        illumination: int
+        channel: int
+        tile: int
+        angle: int
+            Indices of the view attributes, &gt;= 0.
         m_affine: numpy array of shape (3,4)
             Coefficients of affine transformation matrix (m00, m01, ...)
         name_affine: str, optional
             Name of the affine transformation.
         &#34;&#34;&#34;
     self._get_xml_root()
+    isetup = self._determine_setup_id(illumination, channel, tile, angle)
     assert m_affine.shape == (3,4), &#34;m_affine must be a numpy array of shape (3,4)&#34;
     found = False
     for node in self._root.findall(&#39;./ViewRegistrations/ViewRegistration&#39;):
@@ -981,7 +1067,8 @@ name_affine: str, optional
             found = True
             break
     assert found, f&#39;Node not found: &lt;ViewRegistration setup=&#34;{isetup}&#34; timepoint=&#34;{time}&#34;&gt;&#39;
-    vt = ET.SubElement(node, &#39;ViewTransform&#39;)
+    vt = ET.Element(&#39;ViewTransform&#39;)
+    node.insert(0, vt)
     vt.set(&#39;type&#39;, &#39;affine&#39;)
     ET.SubElement(vt, &#39;Name&#39;).text = name_affine
     n_prec = 6
@@ -1039,7 +1126,7 @@ ilevel: int
             if bbox_xyz[2]:
                 view_arr = view_arr[slice(*bbox_xyz[2]), :, :]
             view_dataset.resize(view_arr.shape)
-            view_dataset = view_arr
+            view_dataset[:] = view_arr # Always use braces here! A common mistake to omit them.
             self._file_object_h5.flush()
     else:
         raise FileNotFoundError(self.filename_h5)
@@ -1215,19 +1302,21 @@ ilevel: int
 </dd>
 <dt id="npy2bdv.npy2bdv.BdvWriter"><code class="flex name class">
 <span>class <span class="ident">BdvWriter</span></span>
-<span>(</span><span>filename, subsamp=((1, 1, 1),), blockdim=((4, 256, 256),), compression=None, nilluminations=1, nchannels=1, ntiles=1, nangles=1, overwrite=False)</span>
+<span>(</span><span>filename, subsamp_zyx=((1, 1, 1),), blockdim=((4, 256, 256),), compression=None, nilluminations=1, nchannels=1, ntiles=1, nangles=1, overwrite=False, format='h5')</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.</p>
+<div class="desc"><p>Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher compatible dataset.
+Currently implemented formats: H5, N5.</p>
 <h2 id="parameters">Parameters:</h2>
 <pre><code>filename: string
-    File name (full path).
-subsamp: tuple of tuples
+    Name of the N5 or H5 file to create (full path).
+subsamp_zyx: tuple of tuples
     Subsampling levels in (z,y,x) order. Integers &gt;= 1, default value ((1, 1, 1),) for no subsampling.
 blockdim: tuple of tuples
     Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),), see notes.
 compression: None or str
-    (None, 'gzip', 'lzf'), HDF5 compression method. Default is None for high-speed writing.
+    H5 compression options: (None, 'gzip', 'lzf'), Default is None for high-speed writing.
+    N5 compression: (None, 'gzip', 'xz'), default is None (raw).
 nilluminations: int
 nchannels: int
 ntiles: int
@@ -1235,6 +1324,8 @@ nangles: int
     Number of view attributes, &gt;=1.
 overwrite: boolean
     If True, overwrite existing file. Default False.
+format: str
+    Data format to use: 'h5' (default), 'n5'.
 </code></pre>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -1249,26 +1340,29 @@ Block size can be larger than stack dimension.</p></div>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">class BdvWriter:
-    __version__ = &#34;2020.10&#34;
+    __version__ = &#34;1.0.2&#34;
 
     def __init__(self, filename,
-                 subsamp=((1, 1, 1),),
+                 subsamp_zyx=((1, 1, 1),),
                  blockdim=((4, 256, 256),),
                  compression=None,
                  nilluminations=1, nchannels=1, ntiles=1, nangles=1,
-                 overwrite=False):
-        &#34;&#34;&#34;Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.
+                 overwrite=False,
+                 format=&#39;h5&#39;):
+        &#34;&#34;&#34;Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher compatible dataset.
+        Currently implemented formats: H5, N5.
 
         Parameters:
         -----------
             filename: string
-                File name (full path).
-            subsamp: tuple of tuples
+                Name of the N5 or H5 file to create (full path).
+            subsamp_zyx: tuple of tuples
                 Subsampling levels in (z,y,x) order. Integers &gt;= 1, default value ((1, 1, 1),) for no subsampling.
             blockdim: tuple of tuples
                 Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),), see notes.
             compression: None or str
-                (None, &#39;gzip&#39;, &#39;lzf&#39;), HDF5 compression method. Default is None for high-speed writing.
+                H5 compression options: (None, &#39;gzip&#39;, &#39;lzf&#39;), Default is None for high-speed writing.
+                N5 compression: (None, &#39;gzip&#39;, &#39;xz&#39;), default is None (raw).
             nilluminations: int
             nchannels: int
             ntiles: int
@@ -1276,6 +1370,8 @@ Block size can be larger than stack dimension.</p></div>
                 Number of view attributes, &gt;=1.
             overwrite: boolean
                 If True, overwrite existing file. Default False.
+            format: str
+                Data format to use: &#39;h5&#39; (default), &#39;n5&#39;.
 
         .. note::
         ------
@@ -1289,11 +1385,10 @@ Block size can be larger than stack dimension.</p></div>
         assert nchannels &gt;= 1, &#34;Total number of channels must be at least 1.&#34;
         assert ntiles &gt;= 1, &#34;Total number of tiles must be at least 1.&#34;
         assert nangles &gt;= 1, &#34;Total number of angles must be at least 1.&#34;
-        assert compression in (None, &#39;gzip&#39;, &#39;lzf&#39;), &#39;Unknown compression type&#39;
-        assert all([isinstance(element, int) for tupl in subsamp for element in
+        assert all([isinstance(element, int) for tupl in subsamp_zyx for element in
                     tupl]), &#39;subsamp values should be integers &gt;= 1.&#39;
-        if len(blockdim) &lt; len(subsamp):
-            print(f&#34;INFO: blockdim levels ({len(blockdim)}) &lt; subsamp levels ({len(subsamp)}):&#34;
+        if len(blockdim) &lt; len(subsamp_zyx):
+            print(f&#34;INFO: blockdim levels ({len(blockdim)}) &lt; subsamp levels ({len(subsamp_zyx)}):&#34;
                   f&#34; First-level block size {blockdim[0]} will be used for all levels&#34;)
         self._fmt = &#39;t{:05d}/s{:02d}/{}&#39;
         self.nsetups = nilluminations * nchannels * ntiles * nangles
@@ -1301,8 +1396,8 @@ Block size can be larger than stack dimension.</p></div>
         self.nchannels = nchannels
         self.ntiles = ntiles
         self.nangles = nangles
-        self.subsamp = np.asarray(subsamp)
-        self.nlevels = len(subsamp)
+        self.subsamp_zyx = np.asarray(subsamp_zyx)
+        self.nlevels = len(subsamp_zyx)
         self.chunks = self._compute_chunk_size(blockdim)
         self.stack_shapes = {}
         self.affine_matrices = {}
@@ -1310,37 +1405,54 @@ Block size can be larger than stack dimension.</p></div>
         self.calibrations = {}
         self.voxel_size_xyz = {}
         self.voxel_units = {}
+        self.virtual_stack_dim = {}
         self.exposure_time = {}
         self.exposure_units = {}
-        self.compression = compression
         self.filename = filename
+        self.file_format = format
+        self.compression = None
         if os.path.exists(self.filename):
             if overwrite:
-                os.remove(self.filename)
-                print(&#34;Warning: H5 file already exists, overwriting.&#34;)
+                if self.file_format == &#39;h5&#39;:
+                    os.remove(self.filename)
+                    print(&#34;Warning: H5 file already exists, overwriting.&#34;)
+                elif self.file_format == &#39;n5&#39;:
+                    shutil.rmtree(self.filename)
+                    print(&#34;Warning: N5 dataset already exists, overwriting.&#34;)
             else:
                 raise FileExistsError(f&#34;File {self.filename} already exists.&#34;)
-        self.file_object = h5py.File(filename, &#39;a&#39;)
-        self._write_setups_header()
+        if self.file_format == &#39;h5&#39;:
+            self.file_object = h5py.File(filename, &#39;a&#39;)
+            assert compression in (None, &#39;gzip&#39;, &#39;lzf&#39;), f&#39;H5 compression unknown: {compression}&#39;
+            self.compression = compression
+            self._write_H5_headers()
+        elif self.file_format == &#39;n5&#39;:
+            self.file_object = z5py.File(filename[:-2] + &#39;n5&#39;, &#39;a&#39;)
+            assert compression in (None, &#39;gzip&#39;, &#39;xz&#39;), \
+                f&#39;N5 compression unknown: {compression}&#39;
+            self.compression = &#39;raw&#39; if compression is None else compression
+        else:
+            raise ValueError(&#34;File format unknown&#34;)
         self.virtual_stacks = False
         self.setup_id_present = [[False] * self.nsetups]
 
-    def _write_setups_header(self):
+    def _write_H5_headers(self):
         &#34;&#34;&#34;Write resolutions and subdivisions for all setups into h5 file.&#34;&#34;&#34;
         for isetup in range(self.nsetups):
             group_name = &#39;s{:02d}&#39;.format(isetup)
             if group_name in self.file_object:
                 del self.file_object[group_name]
             grp = self.file_object.create_group(group_name)
-            data_subsamp = np.flip(self.subsamp, 1)
-            data_chunks = np.flip(self.chunks, 1)
+            data_subsamp = np.flip(self.subsamp_zyx, 1).astype(&#39;float64&#39;)
+            data_chunks = np.flip(self.chunks, 1).astype(&#39;int32&#39;)
             grp.create_dataset(&#39;resolutions&#39;, data=data_subsamp, dtype=&#39;&lt;f8&#39;)
             grp.create_dataset(&#39;subdivisions&#39;, data=data_chunks, dtype=&#39;&lt;i4&#39;)
 
     def append_plane(self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0):
         &#34;&#34;&#34;Append a plane to a virtual stack. Requires stack initialization by calling e.g.
         `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
-        
+        Todo: implement for N5.
+
         Parameters:
         -----------
             plane: array_like
@@ -1355,7 +1467,7 @@ Block size can be larger than stack dimension.</p></div>
             angle: int
                 Indices of the view attributes, &gt;=0.
         &#34;&#34;&#34;
-        
+
         assert self.virtual_stacks, &#34;Appending planes requires initialization with virtual stack, &#34; \
                                     &#34;see append_view(stack=None,...)&#34;
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
@@ -1365,7 +1477,7 @@ Block size can be larger than stack dimension.</p></div>
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self.file_object[group_name][&#34;cells&#34;]
-            dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype(&#39;int16&#39;)
+            dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp_zyx[ilevel]).astype(&#39;int16&#39;)
 
     def append_view(self, stack, virtual_stack_dim=None,
                     time=0, illumination=0, channel=0, tile=0, angle=0,
@@ -1373,8 +1485,8 @@ Block size can be larger than stack dimension.</p></div>
                     voxel_size_xyz=(1, 1, 1), voxel_units=&#39;px&#39;, calibration=(1, 1, 1),
                     exposure_time=0, exposure_units=&#39;s&#39;):
         &#34;&#34;&#34;
-        Write 3-dimensional numpy array (stack) to the h5 file with the specified timepoint `itime` and attributes.
-        
+        Write 3-dimensional numpy array (stack) to the dataset (H5 or N5) with specified attributes.
+
         Parameters:
         -----------
             stack: numpy array (uint16) or None
@@ -1405,42 +1517,68 @@ Block size can be larger than stack dimension.</p></div>
             exposure_units: str, optional
                 Time units for this view, default &#34;s&#34;.
         &#34;&#34;&#34;
-        
-        assert len(calibration) == 3, &#34;Calibration must be a tuple of 3 elements (x, y, z).&#34;
-        assert len(voxel_size_xyz) == 3, &#34;Voxel size must be a tuple of 3 elements (x, y, z).&#34;
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         self._update_setup_id_present(isetup, time)
+        assert len(calibration) == 3, &#34;Calibration must be a tuple of 3 elements (x, y, z).&#34;
+        assert len(voxel_size_xyz) == 3, &#34;Voxel size must be a tuple of 3 elements (x, y, z).&#34;
         if stack is not None:
             assert len(stack.shape) == 3, &#34;Stack should be a 3-dimensional numpy array (z,y,x)&#34;
             self.stack_shapes[isetup] = stack.shape
         else:
+            assert self.file_format == &#39;h5&#39;, &#34;Only H5 is currently implemented for virtual stack writing.&#34;
             assert len(virtual_stack_dim) == 3, &#34;Stack is virtual, so parameter virtual_stack_dim must be defined.&#34;
             self.stack_shapes[isetup] = virtual_stack_dim
             self.virtual_stacks = True
 
-        for ilevel in range(self.nlevels):
-            group_name = self._fmt.format(time, isetup, ilevel)
-            if group_name in self.file_object:
-                del self.file_object[group_name]
-            grp = self.file_object.create_group(group_name)
-            if stack is not None:
-                subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype(&#39;int16&#39;)
-                grp.create_dataset(&#39;cells&#39;, data=subdata, chunks=self.chunks[ilevel],
-                                   maxshape=(None, None, None), compression=self.compression, dtype=&#39;int16&#39;)
-            else:  # a large virtual stack initialized
-                assert self.subsamp[ilevel][0] == 1, &#34;Virtual stacks must have z-subsampling == 1,&#34; \
-                                                     &#34; eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16)).&#34;
-                grp.create_dataset(&#39;cells&#39;, chunks=self.chunks[ilevel],
-                                   shape=virtual_stack_dim // self.subsamp[ilevel],
-                                   compression=self.compression, dtype=&#39;int16&#39;)
         if m_affine is not None:
             self.affine_matrices[isetup] = m_affine.copy()
             self.affine_names[isetup] = name_affine
+        self.virtual_stack_dim[isetup] = virtual_stack_dim
         self.calibrations[isetup] = calibration
         self.voxel_size_xyz[isetup] = voxel_size_xyz
         self.voxel_units[isetup] = voxel_units
         self.exposure_time[isetup] = exposure_time
         self.exposure_units[isetup] = exposure_units
+
+        if self.file_format == &#39;h5&#39;:
+            self._write_h5_dataset(stack, isetup, time)
+        else:
+            self._write_n5_dataset(stack, isetup, time)
+
+    def _write_h5_dataset(self, stack, isetup, time, dtype=&#39;int16&#39;):
+        &#34;&#34;&#34;Write the view (stack) as N5 dataset in BigDataViewer format.
+        Note that type must be int16, rather than uint16, for correct reading by Fiji (a bug?)&#34;&#34;&#34;
+        for ilevel in range(self.nlevels):
+            group_name = self._fmt.format(time, isetup, ilevel)
+            if group_name in self.file_object:
+                del self.file_object[group_name]
+            grp = self.file_object.create_group(group_name)
+            if stack is not None: # real stack, written in one go
+                subdata = self._subsample_stack(stack, self.subsamp_zyx[ilevel]).astype(dtype)
+                grp.create_dataset(&#39;cells&#39;, data=subdata, chunks=self.chunks[ilevel],
+                                   maxshape=(None, None, None), compression=self.compression, dtype=dtype)
+            else:  # virtual stack initialization
+                assert self.subsamp_zyx[ilevel][0] == 1, &#34;Virtual stacks must have z-subsampling == 1,&#34; \
+                                                         &#34; eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16)).&#34;
+                grp.create_dataset(&#39;cells&#39;, chunks=self.chunks[ilevel],
+                                   shape=self.virtual_stack_dim[isetup] // self.subsamp_zyx[ilevel],
+                                   compression=self.compression, dtype=dtype)
+
+    def _write_n5_dataset(self, stack, isetup, time, dtype=&#39;uint16&#39;):
+        &#34;&#34;&#34;Write the view (stack) as N5 dataset in BigDataViewer format&#34;&#34;&#34;
+        grp = self.file_object.create_group(f&#34;setup{isetup}/timepoint{time}&#34;)
+        self.file_object[f&#34;setup{isetup}&#34;].attrs[&#39;downsamplingFactors&#39;] = np.flip(self.subsamp_zyx, 1).tolist()
+        self.file_object[f&#34;setup{isetup}&#34;].attrs[&#39;dataType&#39;] = dtype
+        self.file_object[f&#34;setup{isetup}/timepoint{time}&#34;].attrs[&#34;resolution&#34;] = list(self.voxel_size_xyz[isetup])
+        self.file_object[f&#34;setup{isetup}/timepoint{time}&#34;].attrs[&#34;saved_completely&#34;] = True
+        self.file_object[f&#34;setup{isetup}/timepoint{time}&#34;].attrs[&#34;multiScale&#34;] = True
+        if stack is not None:
+            for ilevel in range(self.nlevels):
+                subdata = self._subsample_stack(stack, self.subsamp_zyx[ilevel]).astype(dtype)
+                grp.create_dataset(f&#34;s{ilevel}&#34;, data=subdata, chunks=self.chunks[ilevel],
+                                   compression=self.compression, dtype=dtype)
+                self.file_object[f&#34;setup{isetup}/timepoint{time}/s{ilevel}&#34;].attrs[&#39;downsamplingFactors&#39;] = \
+                    np.flip(self.subsamp_zyx[ilevel]).tolist()
 
     def _compute_chunk_size(self, blockdim):
         &#34;&#34;&#34;Populate the size of h5 chunks.
@@ -1448,8 +1586,8 @@ Block size can be larger than stack dimension.</p></div>
         &#34;&#34;&#34;
         chunks = []
         base_level = blockdim[0]
-        if len(blockdim) &lt; len(self.subsamp):
-            for ilevel in range(len(self.subsamp)):
+        if len(blockdim) &lt; len(self.subsamp_zyx):
+            for ilevel in range(len(self.subsamp_zyx)):
                 chunks.append(base_level)
             chunks_tuple = tuple(chunks)
         else:
@@ -1457,7 +1595,7 @@ Block size can be larger than stack dimension.</p></div>
         return chunks_tuple
 
     def _subsample_stack(self, stack, subsamp_level):
-        &#34;&#34;&#34;Subsampling of 3d stack.
+        &#34;&#34;&#34;Subsampling of a 3d stack.
         
         Parameters:
         -----------
@@ -1493,21 +1631,22 @@ Block size can be larger than stack dimension.</p></div>
             plane_sub = skimage.transform.downscale_local_mean(plane, tuple(subsamp_level[1:])).astype(np.uint16)
         return plane_sub
 
-    def write_xml_file(self, ntimes=1,
-                       camera_name=&#34;default&#34;,  microscope_name=&#34;default&#34;,
-                       microscope_version=&#34;0.0&#34;, user_name=&#34;user&#34;):
+    def write_xml(self, ntimes=1,
+                  camera_name=&#34;camera&#34;, microscope_name=&#34;SPIM1&#34;,
+                  microscope_version=&#34;0.0&#34;, user_name=&#34;user1&#34;):
         &#34;&#34;&#34;
         Write XML header file for the HDF5 file.
+        The camera-related view attributes will be written only if `camera_name` is not None.
 
         Parameters:
         -----------
             ntimes: int
                 Number of time points
-            camera_name: str, optional
+            camera_name: None or str, optional
                 Name of the camera (same for all setups at the moment)
-            microscope_name: str, optional
-            microscope_version: str, optional
-            user_name: str, optional
+            microscope_name: None or str, optional
+            microscope_version: None or str, optional
+            user_name: None or str, optional
         &#34;&#34;&#34;
         assert ntimes &gt;= 1, &#34;Total number of time points must be at least 1.&#34;
         root = ET.Element(&#39;SpimData&#39;)
@@ -1520,16 +1659,24 @@ Block size can be larger than stack dimension.</p></div>
         library = ET.SubElement(generator, &#39;library&#39;)
         library.set(&#39;version&#39;, self.__version__)
         library.text = &#34;npy2bdv&#34;
-        microscope = ET.SubElement(generator, &#39;microscope&#39;)
-        ET.SubElement(microscope, &#39;name&#39;).text = microscope_name
-        ET.SubElement(microscope, &#39;version&#39;).text = microscope_version
-        ET.SubElement(microscope, &#39;user&#39;).text = user_name
+        if microscope_name:
+            microscope = ET.SubElement(generator, &#39;microscope&#39;)
+            ET.SubElement(microscope, &#39;name&#39;).text = microscope_name
+            if microscope_version:
+                ET.SubElement(microscope, &#39;version&#39;).text = microscope_version
+            if user_name:
+                ET.SubElement(microscope, &#39;user&#39;).text = user_name
         # end of new XML data
 
         seqdesc = ET.SubElement(root, &#39;SequenceDescription&#39;)
         imgload = ET.SubElement(seqdesc, &#39;ImageLoader&#39;)
-        imgload.set(&#39;format&#39;, &#39;bdv.hdf5&#39;)
-        el = ET.SubElement(imgload, &#39;hdf5&#39;)
+        if self.file_format == &#39;h5&#39;:
+            imgload.set(&#39;format&#39;, &#39;bdv.hdf5&#39;)
+            el = ET.SubElement(imgload, &#39;hdf5&#39;)
+        else:
+            imgload.set(&#39;format&#39;, &#39;bdv.n5&#39;)
+            imgload.set(&#39;version&#39;, &#39;1.0&#39;)
+            el = ET.SubElement(imgload, &#39;n5&#39;)
         el.set(&#39;type&#39;, &#39;relative&#39;)
         el.text = os.path.basename(self.filename)
         # write ViewSetups
@@ -1550,10 +1697,11 @@ Block size can be larger than stack dimension.</p></div>
                             dx, dy, dz = self.voxel_size_xyz[isetup]
                             ET.SubElement(vox, &#39;size&#39;).text = &#39;{} {} {}&#39;.format(dx, dy, dz)
                             # new XML data, added by @nvladimus
-                            cam = ET.SubElement(vs, &#39;camera&#39;)
-                            ET.SubElement(cam, &#39;name&#39;).text = camera_name
-                            ET.SubElement(cam, &#39;exposureTime&#39;).text = &#39;{}&#39;.format(self.exposure_time[isetup])
-                            ET.SubElement(cam, &#39;exposureUnits&#39;).text = self.exposure_units[isetup]
+                            if camera_name:
+                                cam = ET.SubElement(vs, &#39;camera&#39;)
+                                ET.SubElement(cam, &#39;name&#39;).text = camera_name
+                                ET.SubElement(cam, &#39;exposureTime&#39;).text = &#39;{}&#39;.format(self.exposure_time[isetup])
+                                ET.SubElement(cam, &#39;exposureUnits&#39;).text = self.exposure_units[isetup]
                             # end of new XML data
                             a = ET.SubElement(vs, &#39;attributes&#39;)
                             ET.SubElement(a, &#39;illumination&#39;).text = str(iillumination)
@@ -1663,8 +1811,9 @@ Block size can be larger than stack dimension.</p></div>
         self.setup_id_present[itime][isetup] = True
 
     def close(self):
-        &#34;&#34;&#34;Save changes and close the H5 file.&#34;&#34;&#34;
-        self.file_object.close()</code></pre>
+        &#34;&#34;&#34;Save changes and close the data file if needed.&#34;&#34;&#34;
+        if self.file_format == &#34;h5&#34;:
+            self.file_object.close()</code></pre>
 </details>
 <h3>Methods</h3>
 <dl>
@@ -1673,7 +1822,8 @@ Block size can be larger than stack dimension.</p></div>
 </code></dt>
 <dd>
 <div class="desc"><p>Append a plane to a virtual stack. Requires stack initialization by calling e.g.
-<code>append_view(stack=None, virtual_stack_dim=(1000,2048,2048))</code> beforehand.</p>
+<code>append_view(stack=None, virtual_stack_dim=(1000,2048,2048))</code> beforehand.
+Todo: implement for N5.</p>
 <h2 id="parameters">Parameters:</h2>
 <pre><code>plane: array_like
     A 2d numpy array of (y,x) pixel values.
@@ -1694,7 +1844,8 @@ angle: int
 <pre><code class="python">def append_plane(self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0):
     &#34;&#34;&#34;Append a plane to a virtual stack. Requires stack initialization by calling e.g.
     `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
-    
+    Todo: implement for N5.
+
     Parameters:
     -----------
         plane: array_like
@@ -1709,7 +1860,7 @@ angle: int
         angle: int
             Indices of the view attributes, &gt;=0.
     &#34;&#34;&#34;
-    
+
     assert self.virtual_stacks, &#34;Appending planes requires initialization with virtual stack, &#34; \
                                 &#34;see append_view(stack=None,...)&#34;
     isetup = self._determine_setup_id(illumination, channel, tile, angle)
@@ -1719,14 +1870,14 @@ angle: int
     for ilevel in range(self.nlevels):
         group_name = self._fmt.format(time, isetup, ilevel)
         dataset = self.file_object[group_name][&#34;cells&#34;]
-        dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype(&#39;int16&#39;)</code></pre>
+        dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp_zyx[ilevel]).astype(&#39;int16&#39;)</code></pre>
 </details>
 </dd>
 <dt id="npy2bdv.npy2bdv.BdvWriter.append_view"><code class="name flex">
 <span>def <span class="ident">append_view</span></span>(<span>self, stack, virtual_stack_dim=None, time=0, illumination=0, channel=0, tile=0, angle=0, m_affine=None, name_affine='manually defined', voxel_size_xyz=(1, 1, 1), voxel_units='px', calibration=(1, 1, 1), exposure_time=0, exposure_units='s')</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Write 3-dimensional numpy array (stack) to the h5 file with the specified timepoint <code>itime</code> and attributes.</p>
+<div class="desc"><p>Write 3-dimensional numpy array (stack) to the dataset (H5 or N5) with specified attributes.</p>
 <h2 id="parameters">Parameters:</h2>
 <pre><code>stack: numpy array (uint16) or None
     A 3-dimensional stack of uint16 data in (z,y,x) axis order.
@@ -1766,8 +1917,8 @@ exposure_units: str, optional
                 voxel_size_xyz=(1, 1, 1), voxel_units=&#39;px&#39;, calibration=(1, 1, 1),
                 exposure_time=0, exposure_units=&#39;s&#39;):
     &#34;&#34;&#34;
-    Write 3-dimensional numpy array (stack) to the h5 file with the specified timepoint `itime` and attributes.
-    
+    Write 3-dimensional numpy array (stack) to the dataset (H5 or N5) with specified attributes.
+
     Parameters:
     -----------
         stack: numpy array (uint16) or None
@@ -1798,91 +1949,85 @@ exposure_units: str, optional
         exposure_units: str, optional
             Time units for this view, default &#34;s&#34;.
     &#34;&#34;&#34;
-    
-    assert len(calibration) == 3, &#34;Calibration must be a tuple of 3 elements (x, y, z).&#34;
-    assert len(voxel_size_xyz) == 3, &#34;Voxel size must be a tuple of 3 elements (x, y, z).&#34;
     isetup = self._determine_setup_id(illumination, channel, tile, angle)
     self._update_setup_id_present(isetup, time)
+    assert len(calibration) == 3, &#34;Calibration must be a tuple of 3 elements (x, y, z).&#34;
+    assert len(voxel_size_xyz) == 3, &#34;Voxel size must be a tuple of 3 elements (x, y, z).&#34;
     if stack is not None:
         assert len(stack.shape) == 3, &#34;Stack should be a 3-dimensional numpy array (z,y,x)&#34;
         self.stack_shapes[isetup] = stack.shape
     else:
+        assert self.file_format == &#39;h5&#39;, &#34;Only H5 is currently implemented for virtual stack writing.&#34;
         assert len(virtual_stack_dim) == 3, &#34;Stack is virtual, so parameter virtual_stack_dim must be defined.&#34;
         self.stack_shapes[isetup] = virtual_stack_dim
         self.virtual_stacks = True
 
-    for ilevel in range(self.nlevels):
-        group_name = self._fmt.format(time, isetup, ilevel)
-        if group_name in self.file_object:
-            del self.file_object[group_name]
-        grp = self.file_object.create_group(group_name)
-        if stack is not None:
-            subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype(&#39;int16&#39;)
-            grp.create_dataset(&#39;cells&#39;, data=subdata, chunks=self.chunks[ilevel],
-                               maxshape=(None, None, None), compression=self.compression, dtype=&#39;int16&#39;)
-        else:  # a large virtual stack initialized
-            assert self.subsamp[ilevel][0] == 1, &#34;Virtual stacks must have z-subsampling == 1,&#34; \
-                                                 &#34; eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16)).&#34;
-            grp.create_dataset(&#39;cells&#39;, chunks=self.chunks[ilevel],
-                               shape=virtual_stack_dim // self.subsamp[ilevel],
-                               compression=self.compression, dtype=&#39;int16&#39;)
     if m_affine is not None:
         self.affine_matrices[isetup] = m_affine.copy()
         self.affine_names[isetup] = name_affine
+    self.virtual_stack_dim[isetup] = virtual_stack_dim
     self.calibrations[isetup] = calibration
     self.voxel_size_xyz[isetup] = voxel_size_xyz
     self.voxel_units[isetup] = voxel_units
     self.exposure_time[isetup] = exposure_time
-    self.exposure_units[isetup] = exposure_units</code></pre>
+    self.exposure_units[isetup] = exposure_units
+
+    if self.file_format == &#39;h5&#39;:
+        self._write_h5_dataset(stack, isetup, time)
+    else:
+        self._write_n5_dataset(stack, isetup, time)</code></pre>
 </details>
 </dd>
 <dt id="npy2bdv.npy2bdv.BdvWriter.close"><code class="name flex">
 <span>def <span class="ident">close</span></span>(<span>self)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Save changes and close the H5 file.</p></div>
+<div class="desc"><p>Save changes and close the data file if needed.</p></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
 <pre><code class="python">def close(self):
-    &#34;&#34;&#34;Save changes and close the H5 file.&#34;&#34;&#34;
-    self.file_object.close()</code></pre>
+    &#34;&#34;&#34;Save changes and close the data file if needed.&#34;&#34;&#34;
+    if self.file_format == &#34;h5&#34;:
+        self.file_object.close()</code></pre>
 </details>
 </dd>
-<dt id="npy2bdv.npy2bdv.BdvWriter.write_xml_file"><code class="name flex">
-<span>def <span class="ident">write_xml_file</span></span>(<span>self, ntimes=1, camera_name='default', microscope_name='default', microscope_version='0.0', user_name='user')</span>
+<dt id="npy2bdv.npy2bdv.BdvWriter.write_xml"><code class="name flex">
+<span>def <span class="ident">write_xml</span></span>(<span>self, ntimes=1, camera_name='camera', microscope_name='SPIM1', microscope_version='0.0', user_name='user1')</span>
 </code></dt>
 <dd>
-<div class="desc"><p>Write XML header file for the HDF5 file.</p>
+<div class="desc"><p>Write XML header file for the HDF5 file.
+The camera-related view attributes will be written only if <code>camera_name</code> is not None.</p>
 <h2 id="parameters">Parameters:</h2>
 <pre><code>ntimes: int
     Number of time points
-camera_name: str, optional
+camera_name: None or str, optional
     Name of the camera (same for all setups at the moment)
-microscope_name: str, optional
-microscope_version: str, optional
-user_name: str, optional
+microscope_name: None or str, optional
+microscope_version: None or str, optional
+user_name: None or str, optional
 </code></pre></div>
 <details class="source">
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def write_xml_file(self, ntimes=1,
-                   camera_name=&#34;default&#34;,  microscope_name=&#34;default&#34;,
-                   microscope_version=&#34;0.0&#34;, user_name=&#34;user&#34;):
+<pre><code class="python">def write_xml(self, ntimes=1,
+              camera_name=&#34;camera&#34;, microscope_name=&#34;SPIM1&#34;,
+              microscope_version=&#34;0.0&#34;, user_name=&#34;user1&#34;):
     &#34;&#34;&#34;
     Write XML header file for the HDF5 file.
+    The camera-related view attributes will be written only if `camera_name` is not None.
 
     Parameters:
     -----------
         ntimes: int
             Number of time points
-        camera_name: str, optional
+        camera_name: None or str, optional
             Name of the camera (same for all setups at the moment)
-        microscope_name: str, optional
-        microscope_version: str, optional
-        user_name: str, optional
+        microscope_name: None or str, optional
+        microscope_version: None or str, optional
+        user_name: None or str, optional
     &#34;&#34;&#34;
     assert ntimes &gt;= 1, &#34;Total number of time points must be at least 1.&#34;
     root = ET.Element(&#39;SpimData&#39;)
@@ -1895,16 +2040,24 @@ user_name: str, optional
     library = ET.SubElement(generator, &#39;library&#39;)
     library.set(&#39;version&#39;, self.__version__)
     library.text = &#34;npy2bdv&#34;
-    microscope = ET.SubElement(generator, &#39;microscope&#39;)
-    ET.SubElement(microscope, &#39;name&#39;).text = microscope_name
-    ET.SubElement(microscope, &#39;version&#39;).text = microscope_version
-    ET.SubElement(microscope, &#39;user&#39;).text = user_name
+    if microscope_name:
+        microscope = ET.SubElement(generator, &#39;microscope&#39;)
+        ET.SubElement(microscope, &#39;name&#39;).text = microscope_name
+        if microscope_version:
+            ET.SubElement(microscope, &#39;version&#39;).text = microscope_version
+        if user_name:
+            ET.SubElement(microscope, &#39;user&#39;).text = user_name
     # end of new XML data
 
     seqdesc = ET.SubElement(root, &#39;SequenceDescription&#39;)
     imgload = ET.SubElement(seqdesc, &#39;ImageLoader&#39;)
-    imgload.set(&#39;format&#39;, &#39;bdv.hdf5&#39;)
-    el = ET.SubElement(imgload, &#39;hdf5&#39;)
+    if self.file_format == &#39;h5&#39;:
+        imgload.set(&#39;format&#39;, &#39;bdv.hdf5&#39;)
+        el = ET.SubElement(imgload, &#39;hdf5&#39;)
+    else:
+        imgload.set(&#39;format&#39;, &#39;bdv.n5&#39;)
+        imgload.set(&#39;version&#39;, &#39;1.0&#39;)
+        el = ET.SubElement(imgload, &#39;n5&#39;)
     el.set(&#39;type&#39;, &#39;relative&#39;)
     el.text = os.path.basename(self.filename)
     # write ViewSetups
@@ -1925,10 +2078,11 @@ user_name: str, optional
                         dx, dy, dz = self.voxel_size_xyz[isetup]
                         ET.SubElement(vox, &#39;size&#39;).text = &#39;{} {} {}&#39;.format(dx, dy, dz)
                         # new XML data, added by @nvladimus
-                        cam = ET.SubElement(vs, &#39;camera&#39;)
-                        ET.SubElement(cam, &#39;name&#39;).text = camera_name
-                        ET.SubElement(cam, &#39;exposureTime&#39;).text = &#39;{}&#39;.format(self.exposure_time[isetup])
-                        ET.SubElement(cam, &#39;exposureUnits&#39;).text = self.exposure_units[isetup]
+                        if camera_name:
+                            cam = ET.SubElement(vs, &#39;camera&#39;)
+                            ET.SubElement(cam, &#39;name&#39;).text = camera_name
+                            ET.SubElement(cam, &#39;exposureTime&#39;).text = &#39;{}&#39;.format(self.exposure_time[isetup])
+                            ET.SubElement(cam, &#39;exposureUnits&#39;).text = self.exposure_units[isetup]
                         # end of new XML data
                         a = ET.SubElement(vs, &#39;attributes&#39;)
                         ET.SubElement(a, &#39;illumination&#39;).text = str(iillumination)
@@ -2048,7 +2202,7 @@ user_name: str, optional
 <li><code><a title="npy2bdv.npy2bdv.BdvWriter.append_plane" href="#npy2bdv.npy2bdv.BdvWriter.append_plane">append_plane</a></code></li>
 <li><code><a title="npy2bdv.npy2bdv.BdvWriter.append_view" href="#npy2bdv.npy2bdv.BdvWriter.append_view">append_view</a></code></li>
 <li><code><a title="npy2bdv.npy2bdv.BdvWriter.close" href="#npy2bdv.npy2bdv.BdvWriter.close">close</a></code></li>
-<li><code><a title="npy2bdv.npy2bdv.BdvWriter.write_xml_file" href="#npy2bdv.npy2bdv.BdvWriter.write_xml_file">write_xml_file</a></code></li>
+<li><code><a title="npy2bdv.npy2bdv.BdvWriter.write_xml" href="#npy2bdv.npy2bdv.BdvWriter.write_xml">write_xml</a></code></li>
 </ul>
 </li>
 </ul>
