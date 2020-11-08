@@ -20,17 +20,20 @@ class BdvWriter:
                  overwrite=False,
                  format='h5'):
         """Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher compatible dataset.
+        Currently implemented formats: H5 (raw or compressed) and N5 (raw).
+
 
         Parameters:
         -----------
             filename: string
-                File name (full path).
+                Name of the N5 or H5 file to create (full path).
             subsamp_zyx: tuple of tuples
                 Subsampling levels in (z,y,x) order. Integers >= 1, default value ((1, 1, 1),) for no subsampling.
             blockdim: tuple of tuples
                 Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),), see notes.
             compression: None or str
-                (None, 'gzip', 'lzf'), H5 compression method. Default is None for high-speed writing.
+                H5 compression options: (None, 'gzip', 'lzf'), Default is None for high-speed writing.
+                N5 compression: Todo: ('raw', 'blosc', 'gzip', 'bzip2', 'xz', 'lz4')
             nilluminations: int
             nchannels: int
             ntiles: int
@@ -96,8 +99,6 @@ class BdvWriter:
             self.file_object = z5py.File(filename[:-2] + 'n5', 'a')
             if compression is None:
                 self.compression = 'raw'
-                # COMPRESSORS_ZARR = ('raw', 'blosc', 'zlib', 'bzip2', 'gzip')
-                # COMPRESSORS_N5 = ('raw', 'blosc', 'gzip', 'bzip2', 'xz', 'lz4')
         else:
             raise ValueError("File format unknown")
         self.virtual_stacks = False
@@ -197,6 +198,15 @@ class BdvWriter:
             self.stack_shapes[isetup] = virtual_stack_dim
             self.virtual_stacks = True
 
+        if m_affine is not None:
+            self.affine_matrices[isetup] = m_affine.copy()
+            self.affine_names[isetup] = name_affine
+        self.calibrations[isetup] = calibration
+        self.voxel_size_xyz[isetup] = voxel_size_xyz
+        self.voxel_units[isetup] = voxel_units
+        self.exposure_time[isetup] = exposure_time
+        self.exposure_units[isetup] = exposure_units
+
         if self.file_format == 'h5':
             for ilevel in range(self.nlevels):
                 group_name = self._fmt.format(time, isetup, ilevel)
@@ -213,29 +223,24 @@ class BdvWriter:
                     grp.create_dataset('cells', chunks=self.chunks[ilevel],
                                        shape=virtual_stack_dim // self.subsamp_zyx[ilevel],
                                        compression=self.compression, dtype='int16')
-        else: # N5
-            grp = self.file_object.create_group(f"setup{isetup}/timepoint{time}")
-            self.file_object[f"setup{isetup}"].attrs['downsamplingFactors'] = np.flip(self.subsamp_zyx, 1).tolist()
-            self.file_object[f"setup{isetup}"].attrs['dataType'] = 'uint16'
-            self.file_object[f"setup{isetup}/timepoint{time}"].attrs["resolution"] = list(voxel_size_xyz)
-            self.file_object[f"setup{isetup}/timepoint{time}"].attrs["saved_completely"] = True
-            self.file_object[f"setup{isetup}/timepoint{time}"].attrs["multiScale"] = True
-            if stack is not None:
-                for ilevel in range(self.nlevels):
-                    subdata = self._subsample_stack(stack, self.subsamp_zyx[ilevel]).astype('uint16')
-                    grp.create_dataset(f"s{ilevel}", data=subdata, chunks=self.chunks[ilevel],
-                                       compression=self.compression, dtype='uint16')
-                    self.file_object[f"setup{isetup}/timepoint{time}/s{ilevel}"].attrs['downsamplingFactors'] = \
-                        np.flip(self.subsamp_zyx[ilevel]).tolist()
+        else:
+            self._write_n5_dataset(stack, isetup, time)
 
-        if m_affine is not None:
-            self.affine_matrices[isetup] = m_affine.copy()
-            self.affine_names[isetup] = name_affine
-        self.calibrations[isetup] = calibration
-        self.voxel_size_xyz[isetup] = voxel_size_xyz
-        self.voxel_units[isetup] = voxel_units
-        self.exposure_time[isetup] = exposure_time
-        self.exposure_units[isetup] = exposure_units
+    def _write_n5_dataset(self, stack, isetup, time, type='uint16'):
+        """Write the view (stack) as N5 dataset in BigDataViewer format"""
+        grp = self.file_object.create_group(f"setup{isetup}/timepoint{time}")
+        self.file_object[f"setup{isetup}"].attrs['downsamplingFactors'] = np.flip(self.subsamp_zyx, 1).tolist()
+        self.file_object[f"setup{isetup}"].attrs['dataType'] = type
+        self.file_object[f"setup{isetup}/timepoint{time}"].attrs["resolution"] = list(self.voxel_size_xyz[isetup])
+        self.file_object[f"setup{isetup}/timepoint{time}"].attrs["saved_completely"] = True
+        self.file_object[f"setup{isetup}/timepoint{time}"].attrs["multiScale"] = True
+        if stack is not None:
+            for ilevel in range(self.nlevels):
+                subdata = self._subsample_stack(stack, self.subsamp_zyx[ilevel]).astype(type)
+                grp.create_dataset(f"s{ilevel}", data=subdata, chunks=self.chunks[ilevel],
+                                   compression=self.compression, dtype=type)
+                self.file_object[f"setup{isetup}/timepoint{time}/s{ilevel}"].attrs['downsamplingFactors'] = \
+                    np.flip(self.subsamp_zyx[ilevel]).tolist()
 
     def _compute_chunk_size(self, blockdim):
         """Populate the size of h5 chunks.

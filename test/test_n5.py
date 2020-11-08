@@ -66,7 +66,7 @@ class TestWriteN5Tiles(unittest.TestCase):
 
     def setUp(self) -> None:
         self.test_dir = "./test/test_files/"
-        self.fname = self.test_dir + "test_t2_ch3_ill2_tiles2x2_ang2.n5"
+        self.fname = self.test_dir + "test_t2_ch3_ill2_tiles2x2grid_ang2.n5"
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
 
@@ -105,7 +105,6 @@ class TestWriteN5Tiles(unittest.TestCase):
                             affine_matrix = unit_matrix.copy()
                             affine_matrix[0, 3] = ix_tile * tile_w  # x-translation of a tile
                             affine_matrix[1, 3] = iy_tile * tile_h  # y-translation of a tile
-                            print(f"Tile shape: {tile_stack.shape}")
                             bdv_writer.append_view(tile_stack,
                                                    time=t,
                                                    channel=i_ch,
