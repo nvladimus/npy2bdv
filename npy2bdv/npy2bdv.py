@@ -80,8 +80,12 @@ class BdvWriter:
         self.compression = None
         if os.path.exists(self.filename):
             if overwrite:
-                os.remove(self.filename)
-                print("Warning: H5 file already exists, overwriting.")
+                if self.file_format == 'h5':
+                    os.remove(self.filename)
+                    print("Warning: H5 file already exists, overwriting.")
+                elif self.file_format == 'n5':
+                    shutil.rmtree(self.filename)
+                    print("Warning: N5 dataset already exists, overwriting.")
             else:
                 raise FileExistsError(f"File {self.filename} already exists.")
         if self.file_format == 'h5':
@@ -211,7 +215,7 @@ class BdvWriter:
                                        compression=self.compression, dtype='int16')
         else: # N5
             grp = self.file_object.create_group(f"setup{isetup}/timepoint{time}")
-            self.file_object[f"setup{isetup}"].attrs['downsamplingFactors'] = self.subsamp_zyx.tolist()
+            self.file_object[f"setup{isetup}"].attrs['downsamplingFactors'] = np.flip(self.subsamp_zyx, 1).tolist()
             self.file_object[f"setup{isetup}"].attrs['dataType'] = 'uint16'
             self.file_object[f"setup{isetup}/timepoint{time}"].attrs["resolution"] = list(voxel_size_xyz)
             self.file_object[f"setup{isetup}/timepoint{time}"].attrs["saved_completely"] = True
@@ -222,7 +226,7 @@ class BdvWriter:
                     grp.create_dataset(f"s{ilevel}", data=subdata, chunks=self.chunks[ilevel],
                                        compression=self.compression, dtype='uint16')
                     self.file_object[f"setup{isetup}/timepoint{time}/s{ilevel}"].attrs['downsamplingFactors'] = \
-                        self.subsamp_zyx[ilevel].tolist()
+                        np.flip(self.subsamp_zyx[ilevel]).tolist()
 
         if m_affine is not None:
             self.affine_matrices[isetup] = m_affine.copy()
