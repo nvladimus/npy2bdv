@@ -10,7 +10,7 @@ import shutil
 import z5py
 
 class BdvWriter:
-    __version__ = "2020.11"
+    __version__ = "1.0.2"
 
     def __init__(self, filename,
                  subsamp_zyx=((1, 1, 1),),
@@ -75,6 +75,7 @@ class BdvWriter:
         self.calibrations = {}
         self.voxel_size_xyz = {}
         self.voxel_units = {}
+        self.virtual_stack_dim = {}
         self.exposure_time = {}
         self.exposure_units = {}
         self.filename = filename
@@ -201,6 +202,7 @@ class BdvWriter:
         if m_affine is not None:
             self.affine_matrices[isetup] = m_affine.copy()
             self.affine_names[isetup] = name_affine
+        self.virtual_stack_dim[isetup] = virtual_stack_dim
         self.calibrations[isetup] = calibration
         self.voxel_size_xyz[isetup] = voxel_size_xyz
         self.voxel_units[isetup] = voxel_units
@@ -228,7 +230,7 @@ class BdvWriter:
                 assert self.subsamp_zyx[ilevel][0] == 1, "Virtual stacks must have z-subsampling == 1," \
                                                          " eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16))."
                 grp.create_dataset('cells', chunks=self.chunks[ilevel],
-                                   shape=virtual_stack_dim // self.subsamp_zyx[ilevel],
+                                   shape=self.virtual_stack_dim[isetup] // self.subsamp_zyx[ilevel],
                                    compression=self.compression, dtype=dtype)
 
     def _write_n5_dataset(self, stack, isetup, time, dtype='uint16'):
@@ -484,7 +486,7 @@ class BdvWriter:
 
 
 class BdvEditor:
-    __version__ = "2020.10"
+    __version__ = "1.0.2"
 
     def __init__(self, filename):
         """

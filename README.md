@@ -1,6 +1,6 @@
 # npy2bdv
- A minimalistic library for writing image stacks (numpy arrays) into HDF5/XML datasets of 
- Fiji BigDataViewer/BigStitcher format. The library also supports reading the datasets into numpy and cropping them (in-place).
+ A minimalistic library for writing image stacks (numpy arrays) into H5 and N5 datasets of 
+ Fiji BigDataViewer/BigStitcher format. 
  
 [![Python 3.6](https://img.shields.io/badge/python-3.6-blue.svg)](https://www.python.org/downloads/release/python-360/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
@@ -8,14 +8,18 @@
  ## Installation
  Optional: create a new conda environment
   ```
-    conda create --name npy2bdv
-    conda activae npy2bdv
+    conda create --name npy2bdv python=3.6
+    conda activate npy2bdv
   ```
-Install dependency library [`z5py`](https://github.com/constantinpape/z5):
+Install library [`z5py`](https://github.com/constantinpape/z5) and IPython notebook kernel 
+(to run example notebooks):
  ```
     conda install -c conda-forge z5py
+    conda install ipykernel
 ```
- Run `pip install npy2bdv` in the command line. 
+ To install latest **stable** version from PyPi, run `pip install npy2bdv`. 
+ 
+ To install latest version from this repo, clone it and run `python setup.py install`
  
  ## Documentation
 For a quick start, see examples in the Jupyter [`notebook`](/npy2bdv/docs/examples_h5.ipynb).
@@ -23,7 +27,7 @@ For a quick start, see examples in the Jupyter [`notebook`](/npy2bdv/docs/exampl
 API [reference](https://nvladimus.github.io/npy2bdv/).
 
 [Recent changes](CHANGELOG.md)
- - N5 support, including compression.
+ - N5 support with file-system backend (i.e. the dataset is a tree of folders on a disk)
  - The H5/XML datasets can be edited in-place, e.g. by cropping selected views in `x,y,z`, 
  and appending affine transforms to XML. 
  
