@@ -8,6 +8,7 @@ from xml.etree import ElementTree as ET
 import skimage.transform
 import shutil
 
+
 class BdvWriter:
     __version__ = "2020.10"
 
@@ -97,7 +98,7 @@ class BdvWriter:
             grp.create_dataset('resolutions', data=data_subsamp, dtype='<f8')
             grp.create_dataset('subdivisions', data=data_chunks, dtype='<i4')
 
-    def append_plane(self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0):
+    def append_plane(self, plane, z, time=0, illumination=0, channel=0, tile=0, angle=0):
         """Append a plane to a virtual stack. Requires stack initialization by calling e.g.
         `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
         
@@ -105,7 +106,7 @@ class BdvWriter:
         -----------
             plane: array_like
                 A 2d numpy array of (y,x) pixel values.
-            plane_index: int
+            z: int
                 Plane z-position in the virtual stack.
             time: int
                 Time index of the view, >=0.
@@ -121,11 +122,51 @@ class BdvWriter:
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         self._update_setup_id_present(isetup, time)
         assert plane.shape == self.stack_shapes[isetup][1:], "Plane dimensions must match (y,x) size of virtual stack."
-        assert plane_index < self.stack_shapes[isetup][0], "Plane index must be less than virtual stack z-dimension."
+        assert z < self.stack_shapes[isetup][0], "Plane index must be less than virtual stack z-dimension."
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self.file_object[group_name]["cells"]
-            dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype('int16')
+            dataset[z, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype('int16')
+
+    def append_substack(self, substack, z_start, y_start=0, x_start=0,
+                        time=0, illumination=0, channel=0, tile=0, angle=0):
+        """Append a substack to a virtual stack. Requires stack initialization by calling e.g.
+        `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
+
+        Parameters:
+        -----------
+            substack: array_like
+                A 3d numpy array of (z,y,x) pixel values.
+            z_start: int
+            y_start: int
+            z_start: int
+                Offsets (z,y,x) of the substack in the virtual stack.
+            time: int
+                Time index of the view, >=0.
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, >=0.
+        """
+
+        assert self.virtual_stacks, "Appending substack requires initialization with virtual stack, " \
+                                    "see append_view(stack=None,...)"
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        self._update_setup_id_present(isetup, time)
+        assert z_start + substack.shape[0] <= self.stack_shapes[isetup][0], \
+            f"Substack offset {z_start} + z-dim {substack.shape[0]} > virtual stack z-dim {self.stack_shapes[isetup][0]}."
+        assert y_start + substack.shape[1] <= self.stack_shapes[isetup][1], \
+            f"Substack offset {y_start} + y-dim {substack.shape[1]} > virtual stack y-dim {self.stack_shapes[isetup][1]}."
+        assert x_start + substack.shape[2] <= self.stack_shapes[isetup][2], \
+            f"Substack offset {x_start} + x-dim {substack.shape[2]} > virtual stack x-dim {self.stack_shapes[isetup][2]}."
+        for ilevel in range(self.nlevels):
+            group_name = self._fmt.format(time, isetup, ilevel)
+            dataset = self.file_object[group_name]["cells"]
+            subdata = self._subsample_stack(substack, self.subsamp[ilevel]).astype('int16')
+            dataset[z_start : z_start + substack.shape[0],
+                    y_start : y_start + substack.shape[1],
+                    x_start : x_start + substack.shape[2]] = subdata
 
     def append_view(self, stack, virtual_stack_dim=None,
                     time=0, illumination=0, channel=0, tile=0, angle=0,
@@ -141,16 +182,15 @@ class BdvWriter:
                 A 3-dimensional stack of uint16 data in (z,y,x) axis order.
                 If None, creates an empty dataset of size huge_stack_dim.
             virtual_stack_dim: None, or tuple of (z,y,x) dimensions, optional.
-                Dimensions to allocate a huge stack and fill it later by individual planes.
+                Dimensions to allocate a huge stack and fill it later by individual planes or substacks.
             time: int
-                Time index, >=0.
             illumination: int
             channel: int
             tile: int
             angle: int
                 Indices of the view attributes, >= 0.
             m_affine: a numpy array of shape (3,4), optional.
-                Coefficients of affine transformation matrix (m00, m01, ...)
+                Coefficients of affine transformation matrix (m00, m01, ...). The last column is translation in (x,y,z).
             name_affine: str, optional
                 Name of the affine transformation.
             voxel_size_xyz: tuple of size 3, optional
@@ -187,9 +227,7 @@ class BdvWriter:
                 subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
                 grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
                                    maxshape=(None, None, None), compression=self.compression, dtype='int16')
-            else:  # a large virtual stack initialized
-                assert self.subsamp[ilevel][0] == 1, "Virtual stacks must have z-subsampling == 1," \
-                                                     " eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16))."
+            else:  # a virtual stack initialized
                 grp.create_dataset('cells', chunks=self.chunks[ilevel],
                                    shape=virtual_stack_dim // self.subsamp[ilevel],
                                    compression=self.compression, dtype='int16')
@@ -424,6 +462,7 @@ class BdvWriter:
 
     def close(self):
         """Save changes and close the H5 file."""
+        self.file_object.flush()
         self.file_object.close()
 
 

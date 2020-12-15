@@ -36,6 +36,7 @@ from xml.etree import ElementTree as ET
 import skimage.transform
 import shutil
 
+
 class BdvWriter:
     __version__ = &#34;2020.10&#34;
 
@@ -125,7 +126,7 @@ class BdvWriter:
             grp.create_dataset(&#39;resolutions&#39;, data=data_subsamp, dtype=&#39;&lt;f8&#39;)
             grp.create_dataset(&#39;subdivisions&#39;, data=data_chunks, dtype=&#39;&lt;i4&#39;)
 
-    def append_plane(self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0):
+    def append_plane(self, plane, z, time=0, illumination=0, channel=0, tile=0, angle=0):
         &#34;&#34;&#34;Append a plane to a virtual stack. Requires stack initialization by calling e.g.
         `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
         
@@ -133,7 +134,7 @@ class BdvWriter:
         -----------
             plane: array_like
                 A 2d numpy array of (y,x) pixel values.
-            plane_index: int
+            z: int
                 Plane z-position in the virtual stack.
             time: int
                 Time index of the view, &gt;=0.
@@ -149,11 +150,51 @@ class BdvWriter:
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         self._update_setup_id_present(isetup, time)
         assert plane.shape == self.stack_shapes[isetup][1:], &#34;Plane dimensions must match (y,x) size of virtual stack.&#34;
-        assert plane_index &lt; self.stack_shapes[isetup][0], &#34;Plane index must be less than virtual stack z-dimension.&#34;
+        assert z &lt; self.stack_shapes[isetup][0], &#34;Plane index must be less than virtual stack z-dimension.&#34;
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self.file_object[group_name][&#34;cells&#34;]
-            dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype(&#39;int16&#39;)
+            dataset[z, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype(&#39;int16&#39;)
+
+    def append_substack(self, substack, z_start, y_start=0, x_start=0,
+                        time=0, illumination=0, channel=0, tile=0, angle=0):
+        &#34;&#34;&#34;Append a substack to a virtual stack. Requires stack initialization by calling e.g.
+        `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
+
+        Parameters:
+        -----------
+            substack: array_like
+                A 3d numpy array of (z,y,x) pixel values.
+            z_start: int
+            y_start: int
+            z_start: int
+                Offsets (z,y,x) of the substack in the virtual stack.
+            time: int
+                Time index of the view, &gt;=0.
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, &gt;=0.
+        &#34;&#34;&#34;
+
+        assert self.virtual_stacks, &#34;Appending substack requires initialization with virtual stack, &#34; \
+                                    &#34;see append_view(stack=None,...)&#34;
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        self._update_setup_id_present(isetup, time)
+        assert z_start + substack.shape[0] &lt;= self.stack_shapes[isetup][0], \
+            f&#34;Substack offset {z_start} + z-dim {substack.shape[0]} &gt; virtual stack z-dim {self.stack_shapes[isetup][0]}.&#34;
+        assert y_start + substack.shape[1] &lt;= self.stack_shapes[isetup][1], \
+            f&#34;Substack offset {y_start} + y-dim {substack.shape[1]} &gt; virtual stack y-dim {self.stack_shapes[isetup][1]}.&#34;
+        assert x_start + substack.shape[2] &lt;= self.stack_shapes[isetup][2], \
+            f&#34;Substack offset {x_start} + x-dim {substack.shape[2]} &gt; virtual stack x-dim {self.stack_shapes[isetup][2]}.&#34;
+        for ilevel in range(self.nlevels):
+            group_name = self._fmt.format(time, isetup, ilevel)
+            dataset = self.file_object[group_name][&#34;cells&#34;]
+            subdata = self._subsample_stack(substack, self.subsamp[ilevel]).astype(&#39;int16&#39;)
+            dataset[z_start : z_start + substack.shape[0],
+                    y_start : y_start + substack.shape[1],
+                    x_start : x_start + substack.shape[2]] = subdata
 
     def append_view(self, stack, virtual_stack_dim=None,
                     time=0, illumination=0, channel=0, tile=0, angle=0,
@@ -169,16 +210,15 @@ class BdvWriter:
                 A 3-dimensional stack of uint16 data in (z,y,x) axis order.
                 If None, creates an empty dataset of size huge_stack_dim.
             virtual_stack_dim: None, or tuple of (z,y,x) dimensions, optional.
-                Dimensions to allocate a huge stack and fill it later by individual planes.
+                Dimensions to allocate a huge stack and fill it later by individual planes or substacks.
             time: int
-                Time index, &gt;=0.
             illumination: int
             channel: int
             tile: int
             angle: int
                 Indices of the view attributes, &gt;= 0.
             m_affine: a numpy array of shape (3,4), optional.
-                Coefficients of affine transformation matrix (m00, m01, ...)
+                Coefficients of affine transformation matrix (m00, m01, ...). The last column is translation in (x,y,z).
             name_affine: str, optional
                 Name of the affine transformation.
             voxel_size_xyz: tuple of size 3, optional
@@ -215,9 +255,7 @@ class BdvWriter:
                 subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype(&#39;int16&#39;)
                 grp.create_dataset(&#39;cells&#39;, data=subdata, chunks=self.chunks[ilevel],
                                    maxshape=(None, None, None), compression=self.compression, dtype=&#39;int16&#39;)
-            else:  # a large virtual stack initialized
-                assert self.subsamp[ilevel][0] == 1, &#34;Virtual stacks must have z-subsampling == 1,&#34; \
-                                                     &#34; eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16)).&#34;
+            else:  # a virtual stack initialized
                 grp.create_dataset(&#39;cells&#39;, chunks=self.chunks[ilevel],
                                    shape=virtual_stack_dim // self.subsamp[ilevel],
                                    compression=self.compression, dtype=&#39;int16&#39;)
@@ -452,6 +490,7 @@ class BdvWriter:
 
     def close(self):
         &#34;&#34;&#34;Save changes and close the H5 file.&#34;&#34;&#34;
+        self.file_object.flush()
         self.file_object.close()
 
 
@@ -461,13 +500,14 @@ class BdvEditor:
     def __init__(self, filename):
         &#34;&#34;&#34;
         Class for reading and editing existing H5/XML file pairs.
-        Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at your own risk.
+        Warning: Editing of H5/XML files occurs in-place, and there is currently no undo option. Use at your own risk.
+        Todo: add an option to save results as new XML file.
 
         Parameters:
         -----------
             filename: string,
                 Path to either .h5 or .xml file. The other file of the pair must be present
-                in the same folder, by convention.
+                in the same folder.
         &#34;&#34;&#34;
         self._fmt = &#39;t{:05d}/s{:02d}/{}&#39;
         if filename[-2:] == &#39;h5&#39;:
@@ -554,7 +594,7 @@ class BdvEditor:
                 if bbox_xyz[2]:
                     view_arr = view_arr[slice(*bbox_xyz[2]), :, :]
                 view_dataset.resize(view_arr.shape)
-                view_dataset = view_arr
+                view_dataset[:] = view_arr # Always use braces here! A common mistake to omit them.
                 self._file_object_h5.flush()
         else:
             raise FileNotFoundError(self.filename_h5)
@@ -619,24 +659,30 @@ class BdvEditor:
         value = tuple([type_caster(val) for val in props_list[isetup].text.split()])
         return value
 
-    def append_affine(self, time, isetup, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;):
-        &#34;&#34;&#34;&#34; Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+    def append_affine(self, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;,
+                      time=0, illumination=0, channel=0, tile=0, angle=0):
+        &#34;&#34;&#34;&#34; Append affine transformation to a view. This transformation will be placed on top,
+        e.g. executed by the BigStitcher last.
+        The transformation is defined as matrix of shape (3,4).
         Each column represents coordinate unit vectors after the transformation.
         The last column represents translation in (x,y,z).
-        Todo: Not tested yet!
 
         Parameters:
         -----------
             time: int
                 Time index, &gt;=0.
-            isetup: int
-                Setup index, &gt;=0.
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, &gt;= 0.
             m_affine: numpy array of shape (3,4)
                 Coefficients of affine transformation matrix (m00, m01, ...)
             name_affine: str, optional
                 Name of the affine transformation.
             &#34;&#34;&#34;
         self._get_xml_root()
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
         assert m_affine.shape == (3,4), &#34;m_affine must be a numpy array of shape (3,4)&#34;
         found = False
         for node in self._root.findall(&#39;./ViewRegistrations/ViewRegistration&#39;):
@@ -644,7 +690,8 @@ class BdvEditor:
                 found = True
                 break
         assert found, f&#39;Node not found: &lt;ViewRegistration setup=&#34;{isetup}&#34; timepoint=&#34;{time}&#34;&gt;&#39;
-        vt = ET.SubElement(node, &#39;ViewTransform&#39;)
+        vt = ET.Element(&#39;ViewTransform&#39;)
+        node.insert(0, vt)
         vt.set(&#39;type&#39;, &#39;affine&#39;)
         ET.SubElement(vt, &#39;Name&#39;).text = name_affine
         n_prec = 6
@@ -705,11 +752,12 @@ def _xml_indent(elem, level=0):
 </code></dt>
 <dd>
 <div class="desc"><p>Class for reading and editing existing H5/XML file pairs.
-Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at your own risk.</p>
+Warning: Editing of H5/XML files occurs in-place, and there is currently no undo option. Use at your own risk.
+Todo: add an option to save results as new XML file.</p>
 <h2 id="parameters">Parameters:</h2>
 <pre><code>filename: string,
     Path to either .h5 or .xml file. The other file of the pair must be present
-    in the same folder, by convention.
+    in the same folder.
 </code></pre></div>
 <details class="source">
 <summary>
@@ -721,13 +769,14 @@ Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at
     def __init__(self, filename):
         &#34;&#34;&#34;
         Class for reading and editing existing H5/XML file pairs.
-        Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at your own risk.
+        Warning: Editing of H5/XML files occurs in-place, and there is currently no undo option. Use at your own risk.
+        Todo: add an option to save results as new XML file.
 
         Parameters:
         -----------
             filename: string,
                 Path to either .h5 or .xml file. The other file of the pair must be present
-                in the same folder, by convention.
+                in the same folder.
         &#34;&#34;&#34;
         self._fmt = &#39;t{:05d}/s{:02d}/{}&#39;
         if filename[-2:] == &#39;h5&#39;:
@@ -814,7 +863,7 @@ Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at
                 if bbox_xyz[2]:
                     view_arr = view_arr[slice(*bbox_xyz[2]), :, :]
                 view_dataset.resize(view_arr.shape)
-                view_dataset = view_arr
+                view_dataset[:] = view_arr # Always use braces here! A common mistake to omit them.
                 self._file_object_h5.flush()
         else:
             raise FileNotFoundError(self.filename_h5)
@@ -879,24 +928,30 @@ Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at
         value = tuple([type_caster(val) for val in props_list[isetup].text.split()])
         return value
 
-    def append_affine(self, time, isetup, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;):
-        &#34;&#34;&#34;&#34; Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+    def append_affine(self, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;,
+                      time=0, illumination=0, channel=0, tile=0, angle=0):
+        &#34;&#34;&#34;&#34; Append affine transformation to a view. This transformation will be placed on top,
+        e.g. executed by the BigStitcher last.
+        The transformation is defined as matrix of shape (3,4).
         Each column represents coordinate unit vectors after the transformation.
         The last column represents translation in (x,y,z).
-        Todo: Not tested yet!
 
         Parameters:
         -----------
             time: int
                 Time index, &gt;=0.
-            isetup: int
-                Setup index, &gt;=0.
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, &gt;= 0.
             m_affine: numpy array of shape (3,4)
                 Coefficients of affine transformation matrix (m00, m01, ...)
             name_affine: str, optional
                 Name of the affine transformation.
             &#34;&#34;&#34;
         self._get_xml_root()
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
         assert m_affine.shape == (3,4), &#34;m_affine must be a numpy array of shape (3,4)&#34;
         found = False
         for node in self._root.findall(&#39;./ViewRegistrations/ViewRegistration&#39;):
@@ -904,7 +959,8 @@ Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at
                 found = True
                 break
         assert found, f&#39;Node not found: &lt;ViewRegistration setup=&#34;{isetup}&#34; timepoint=&#34;{time}&#34;&gt;&#39;
-        vt = ET.SubElement(node, &#39;ViewTransform&#39;)
+        vt = ET.Element(&#39;ViewTransform&#39;)
+        node.insert(0, vt)
         vt.set(&#39;type&#39;, &#39;affine&#39;)
         ET.SubElement(vt, &#39;Name&#39;).text = name_affine
         n_prec = 6
@@ -935,18 +991,22 @@ Warning: Editing of H5 file occurs in-place, and there is no undo option. Use at
 <h3>Methods</h3>
 <dl>
 <dt id="npy2bdv.npy2bdv.BdvEditor.append_affine"><code class="name flex">
-<span>def <span class="ident">append_affine</span></span>(<span>self, time, isetup, m_affine, name_affine='Appended affine transformation using npy2bdv.')</span>
+<span>def <span class="ident">append_affine</span></span>(<span>self, m_affine, name_affine='Appended affine transformation using npy2bdv.', time=0, illumination=0, channel=0, tile=0, angle=0)</span>
 </code></dt>
 <dd>
-<div class="desc"><p>" Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+<div class="desc"><p>" Append affine transformation to a view. This transformation will be placed on top,
+e.g. executed by the BigStitcher last.
+The transformation is defined as matrix of shape (3,4).
 Each column represents coordinate unit vectors after the transformation.
-The last column represents translation in (x,y,z).
-Todo: Not tested yet!</p>
+The last column represents translation in (x,y,z).</p>
 <h2 id="parameters">Parameters:</h2>
 <pre><code>time: int
     Time index, &gt;=0.
-isetup: int
-    Setup index, &gt;=0.
+illumination: int
+channel: int
+tile: int
+angle: int
+    Indices of the view attributes, &gt;= 0.
 m_affine: numpy array of shape (3,4)
     Coefficients of affine transformation matrix (m00, m01, ...)
 name_affine: str, optional
@@ -956,24 +1016,30 @@ name_affine: str, optional
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def append_affine(self, time, isetup, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;):
-    &#34;&#34;&#34;&#34; Append affine transformation to a view. The transformation is defined as matrix of shape (3,4).
+<pre><code class="python">def append_affine(self, m_affine, name_affine=&#34;Appended affine transformation using npy2bdv.&#34;,
+                  time=0, illumination=0, channel=0, tile=0, angle=0):
+    &#34;&#34;&#34;&#34; Append affine transformation to a view. This transformation will be placed on top,
+    e.g. executed by the BigStitcher last.
+    The transformation is defined as matrix of shape (3,4).
     Each column represents coordinate unit vectors after the transformation.
     The last column represents translation in (x,y,z).
-    Todo: Not tested yet!
 
     Parameters:
     -----------
         time: int
             Time index, &gt;=0.
-        isetup: int
-            Setup index, &gt;=0.
+        illumination: int
+        channel: int
+        tile: int
+        angle: int
+            Indices of the view attributes, &gt;= 0.
         m_affine: numpy array of shape (3,4)
             Coefficients of affine transformation matrix (m00, m01, ...)
         name_affine: str, optional
             Name of the affine transformation.
         &#34;&#34;&#34;
     self._get_xml_root()
+    isetup = self._determine_setup_id(illumination, channel, tile, angle)
     assert m_affine.shape == (3,4), &#34;m_affine must be a numpy array of shape (3,4)&#34;
     found = False
     for node in self._root.findall(&#39;./ViewRegistrations/ViewRegistration&#39;):
@@ -981,7 +1047,8 @@ name_affine: str, optional
             found = True
             break
     assert found, f&#39;Node not found: &lt;ViewRegistration setup=&#34;{isetup}&#34; timepoint=&#34;{time}&#34;&gt;&#39;
-    vt = ET.SubElement(node, &#39;ViewTransform&#39;)
+    vt = ET.Element(&#39;ViewTransform&#39;)
+    node.insert(0, vt)
     vt.set(&#39;type&#39;, &#39;affine&#39;)
     ET.SubElement(vt, &#39;Name&#39;).text = name_affine
     n_prec = 6
@@ -1039,7 +1106,7 @@ ilevel: int
             if bbox_xyz[2]:
                 view_arr = view_arr[slice(*bbox_xyz[2]), :, :]
             view_dataset.resize(view_arr.shape)
-            view_dataset = view_arr
+            view_dataset[:] = view_arr # Always use braces here! A common mistake to omit them.
             self._file_object_h5.flush()
     else:
         raise FileNotFoundError(self.filename_h5)
@@ -1337,7 +1404,7 @@ Block size can be larger than stack dimension.</p></div>
             grp.create_dataset(&#39;resolutions&#39;, data=data_subsamp, dtype=&#39;&lt;f8&#39;)
             grp.create_dataset(&#39;subdivisions&#39;, data=data_chunks, dtype=&#39;&lt;i4&#39;)
 
-    def append_plane(self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0):
+    def append_plane(self, plane, z, time=0, illumination=0, channel=0, tile=0, angle=0):
         &#34;&#34;&#34;Append a plane to a virtual stack. Requires stack initialization by calling e.g.
         `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
         
@@ -1345,7 +1412,7 @@ Block size can be larger than stack dimension.</p></div>
         -----------
             plane: array_like
                 A 2d numpy array of (y,x) pixel values.
-            plane_index: int
+            z: int
                 Plane z-position in the virtual stack.
             time: int
                 Time index of the view, &gt;=0.
@@ -1361,11 +1428,51 @@ Block size can be larger than stack dimension.</p></div>
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         self._update_setup_id_present(isetup, time)
         assert plane.shape == self.stack_shapes[isetup][1:], &#34;Plane dimensions must match (y,x) size of virtual stack.&#34;
-        assert plane_index &lt; self.stack_shapes[isetup][0], &#34;Plane index must be less than virtual stack z-dimension.&#34;
+        assert z &lt; self.stack_shapes[isetup][0], &#34;Plane index must be less than virtual stack z-dimension.&#34;
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self.file_object[group_name][&#34;cells&#34;]
-            dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype(&#39;int16&#39;)
+            dataset[z, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype(&#39;int16&#39;)
+
+    def append_substack(self, substack, z_start, y_start=0, x_start=0,
+                        time=0, illumination=0, channel=0, tile=0, angle=0):
+        &#34;&#34;&#34;Append a substack to a virtual stack. Requires stack initialization by calling e.g.
+        `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
+
+        Parameters:
+        -----------
+            substack: array_like
+                A 3d numpy array of (z,y,x) pixel values.
+            z_start: int
+            y_start: int
+            z_start: int
+                Offsets (z,y,x) of the substack in the virtual stack.
+            time: int
+                Time index of the view, &gt;=0.
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, &gt;=0.
+        &#34;&#34;&#34;
+
+        assert self.virtual_stacks, &#34;Appending substack requires initialization with virtual stack, &#34; \
+                                    &#34;see append_view(stack=None,...)&#34;
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        self._update_setup_id_present(isetup, time)
+        assert z_start + substack.shape[0] &lt;= self.stack_shapes[isetup][0], \
+            f&#34;Substack offset {z_start} + z-dim {substack.shape[0]} &gt; virtual stack z-dim {self.stack_shapes[isetup][0]}.&#34;
+        assert y_start + substack.shape[1] &lt;= self.stack_shapes[isetup][1], \
+            f&#34;Substack offset {y_start} + y-dim {substack.shape[1]} &gt; virtual stack y-dim {self.stack_shapes[isetup][1]}.&#34;
+        assert x_start + substack.shape[2] &lt;= self.stack_shapes[isetup][2], \
+            f&#34;Substack offset {x_start} + x-dim {substack.shape[2]} &gt; virtual stack x-dim {self.stack_shapes[isetup][2]}.&#34;
+        for ilevel in range(self.nlevels):
+            group_name = self._fmt.format(time, isetup, ilevel)
+            dataset = self.file_object[group_name][&#34;cells&#34;]
+            subdata = self._subsample_stack(substack, self.subsamp[ilevel]).astype(&#39;int16&#39;)
+            dataset[z_start : z_start + substack.shape[0],
+                    y_start : y_start + substack.shape[1],
+                    x_start : x_start + substack.shape[2]] = subdata
 
     def append_view(self, stack, virtual_stack_dim=None,
                     time=0, illumination=0, channel=0, tile=0, angle=0,
@@ -1381,16 +1488,15 @@ Block size can be larger than stack dimension.</p></div>
                 A 3-dimensional stack of uint16 data in (z,y,x) axis order.
                 If None, creates an empty dataset of size huge_stack_dim.
             virtual_stack_dim: None, or tuple of (z,y,x) dimensions, optional.
-                Dimensions to allocate a huge stack and fill it later by individual planes.
+                Dimensions to allocate a huge stack and fill it later by individual planes or substacks.
             time: int
-                Time index, &gt;=0.
             illumination: int
             channel: int
             tile: int
             angle: int
                 Indices of the view attributes, &gt;= 0.
             m_affine: a numpy array of shape (3,4), optional.
-                Coefficients of affine transformation matrix (m00, m01, ...)
+                Coefficients of affine transformation matrix (m00, m01, ...). The last column is translation in (x,y,z).
             name_affine: str, optional
                 Name of the affine transformation.
             voxel_size_xyz: tuple of size 3, optional
@@ -1427,9 +1533,7 @@ Block size can be larger than stack dimension.</p></div>
                 subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype(&#39;int16&#39;)
                 grp.create_dataset(&#39;cells&#39;, data=subdata, chunks=self.chunks[ilevel],
                                    maxshape=(None, None, None), compression=self.compression, dtype=&#39;int16&#39;)
-            else:  # a large virtual stack initialized
-                assert self.subsamp[ilevel][0] == 1, &#34;Virtual stacks must have z-subsampling == 1,&#34; \
-                                                     &#34; eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16)).&#34;
+            else:  # a virtual stack initialized
                 grp.create_dataset(&#39;cells&#39;, chunks=self.chunks[ilevel],
                                    shape=virtual_stack_dim // self.subsamp[ilevel],
                                    compression=self.compression, dtype=&#39;int16&#39;)
@@ -1664,12 +1768,13 @@ Block size can be larger than stack dimension.</p></div>
 
     def close(self):
         &#34;&#34;&#34;Save changes and close the H5 file.&#34;&#34;&#34;
+        self.file_object.flush()
         self.file_object.close()</code></pre>
 </details>
 <h3>Methods</h3>
 <dl>
 <dt id="npy2bdv.npy2bdv.BdvWriter.append_plane"><code class="name flex">
-<span>def <span class="ident">append_plane</span></span>(<span>self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0)</span>
+<span>def <span class="ident">append_plane</span></span>(<span>self, plane, z, time=0, illumination=0, channel=0, tile=0, angle=0)</span>
 </code></dt>
 <dd>
 <div class="desc"><p>Append a plane to a virtual stack. Requires stack initialization by calling e.g.
@@ -1677,7 +1782,7 @@ Block size can be larger than stack dimension.</p></div>
 <h2 id="parameters">Parameters:</h2>
 <pre><code>plane: array_like
     A 2d numpy array of (y,x) pixel values.
-plane_index: int
+z: int
     Plane z-position in the virtual stack.
 time: int
     Time index of the view, &gt;=0.
@@ -1691,7 +1796,7 @@ angle: int
 <summary>
 <span>Expand source code</span>
 </summary>
-<pre><code class="python">def append_plane(self, plane, plane_index, time=0, illumination=0, channel=0, tile=0, angle=0):
+<pre><code class="python">def append_plane(self, plane, z, time=0, illumination=0, channel=0, tile=0, angle=0):
     &#34;&#34;&#34;Append a plane to a virtual stack. Requires stack initialization by calling e.g.
     `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
     
@@ -1699,7 +1804,7 @@ angle: int
     -----------
         plane: array_like
             A 2d numpy array of (y,x) pixel values.
-        plane_index: int
+        z: int
             Plane z-position in the virtual stack.
         time: int
             Time index of the view, &gt;=0.
@@ -1715,11 +1820,77 @@ angle: int
     isetup = self._determine_setup_id(illumination, channel, tile, angle)
     self._update_setup_id_present(isetup, time)
     assert plane.shape == self.stack_shapes[isetup][1:], &#34;Plane dimensions must match (y,x) size of virtual stack.&#34;
-    assert plane_index &lt; self.stack_shapes[isetup][0], &#34;Plane index must be less than virtual stack z-dimension.&#34;
+    assert z &lt; self.stack_shapes[isetup][0], &#34;Plane index must be less than virtual stack z-dimension.&#34;
     for ilevel in range(self.nlevels):
         group_name = self._fmt.format(time, isetup, ilevel)
         dataset = self.file_object[group_name][&#34;cells&#34;]
-        dataset[plane_index, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype(&#39;int16&#39;)</code></pre>
+        dataset[z, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype(&#39;int16&#39;)</code></pre>
+</details>
+</dd>
+<dt id="npy2bdv.npy2bdv.BdvWriter.append_substack"><code class="name flex">
+<span>def <span class="ident">append_substack</span></span>(<span>self, substack, z_start, y_start=0, x_start=0, time=0, illumination=0, channel=0, tile=0, angle=0)</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Append a substack to a virtual stack. Requires stack initialization by calling e.g.
+<code>append_view(stack=None, virtual_stack_dim=(1000,2048,2048))</code> beforehand.</p>
+<h2 id="parameters">Parameters:</h2>
+<pre><code>substack: array_like
+    A 3d numpy array of (z,y,x) pixel values.
+z_start: int
+y_start: int
+z_start: int
+    Offsets (z,y,x) of the substack in the virtual stack.
+time: int
+    Time index of the view, &gt;=0.
+illumination: int
+channel: int
+tile: int
+angle: int
+    Indices of the view attributes, &gt;=0.
+</code></pre></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def append_substack(self, substack, z_start, y_start=0, x_start=0,
+                    time=0, illumination=0, channel=0, tile=0, angle=0):
+    &#34;&#34;&#34;Append a substack to a virtual stack. Requires stack initialization by calling e.g.
+    `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
+
+    Parameters:
+    -----------
+        substack: array_like
+            A 3d numpy array of (z,y,x) pixel values.
+        z_start: int
+        y_start: int
+        z_start: int
+            Offsets (z,y,x) of the substack in the virtual stack.
+        time: int
+            Time index of the view, &gt;=0.
+        illumination: int
+        channel: int
+        tile: int
+        angle: int
+            Indices of the view attributes, &gt;=0.
+    &#34;&#34;&#34;
+
+    assert self.virtual_stacks, &#34;Appending substack requires initialization with virtual stack, &#34; \
+                                &#34;see append_view(stack=None,...)&#34;
+    isetup = self._determine_setup_id(illumination, channel, tile, angle)
+    self._update_setup_id_present(isetup, time)
+    assert z_start + substack.shape[0] &lt;= self.stack_shapes[isetup][0], \
+        f&#34;Substack offset {z_start} + z-dim {substack.shape[0]} &gt; virtual stack z-dim {self.stack_shapes[isetup][0]}.&#34;
+    assert y_start + substack.shape[1] &lt;= self.stack_shapes[isetup][1], \
+        f&#34;Substack offset {y_start} + y-dim {substack.shape[1]} &gt; virtual stack y-dim {self.stack_shapes[isetup][1]}.&#34;
+    assert x_start + substack.shape[2] &lt;= self.stack_shapes[isetup][2], \
+        f&#34;Substack offset {x_start} + x-dim {substack.shape[2]} &gt; virtual stack x-dim {self.stack_shapes[isetup][2]}.&#34;
+    for ilevel in range(self.nlevels):
+        group_name = self._fmt.format(time, isetup, ilevel)
+        dataset = self.file_object[group_name][&#34;cells&#34;]
+        subdata = self._subsample_stack(substack, self.subsamp[ilevel]).astype(&#39;int16&#39;)
+        dataset[z_start : z_start + substack.shape[0],
+                y_start : y_start + substack.shape[1],
+                x_start : x_start + substack.shape[2]] = subdata</code></pre>
 </details>
 </dd>
 <dt id="npy2bdv.npy2bdv.BdvWriter.append_view"><code class="name flex">
@@ -1732,16 +1903,15 @@ angle: int
     A 3-dimensional stack of uint16 data in (z,y,x) axis order.
     If None, creates an empty dataset of size huge_stack_dim.
 virtual_stack_dim: None, or tuple of (z,y,x) dimensions, optional.
-    Dimensions to allocate a huge stack and fill it later by individual planes.
+    Dimensions to allocate a huge stack and fill it later by individual planes or substacks.
 time: int
-    Time index, &gt;=0.
 illumination: int
 channel: int
 tile: int
 angle: int
     Indices of the view attributes, &gt;= 0.
 m_affine: a numpy array of shape (3,4), optional.
-    Coefficients of affine transformation matrix (m00, m01, ...)
+    Coefficients of affine transformation matrix (m00, m01, ...). The last column is translation in (x,y,z).
 name_affine: str, optional
     Name of the affine transformation.
 voxel_size_xyz: tuple of size 3, optional
@@ -1774,16 +1944,15 @@ exposure_units: str, optional
             A 3-dimensional stack of uint16 data in (z,y,x) axis order.
             If None, creates an empty dataset of size huge_stack_dim.
         virtual_stack_dim: None, or tuple of (z,y,x) dimensions, optional.
-            Dimensions to allocate a huge stack and fill it later by individual planes.
+            Dimensions to allocate a huge stack and fill it later by individual planes or substacks.
         time: int
-            Time index, &gt;=0.
         illumination: int
         channel: int
         tile: int
         angle: int
             Indices of the view attributes, &gt;= 0.
         m_affine: a numpy array of shape (3,4), optional.
-            Coefficients of affine transformation matrix (m00, m01, ...)
+            Coefficients of affine transformation matrix (m00, m01, ...). The last column is translation in (x,y,z).
         name_affine: str, optional
             Name of the affine transformation.
         voxel_size_xyz: tuple of size 3, optional
@@ -1820,9 +1989,7 @@ exposure_units: str, optional
             subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype(&#39;int16&#39;)
             grp.create_dataset(&#39;cells&#39;, data=subdata, chunks=self.chunks[ilevel],
                                maxshape=(None, None, None), compression=self.compression, dtype=&#39;int16&#39;)
-        else:  # a large virtual stack initialized
-            assert self.subsamp[ilevel][0] == 1, &#34;Virtual stacks must have z-subsampling == 1,&#34; \
-                                                 &#34; eg subsamp=((1, 1, 1), (1, 4, 4), (1, 16, 16)).&#34;
+        else:  # a virtual stack initialized
             grp.create_dataset(&#39;cells&#39;, chunks=self.chunks[ilevel],
                                shape=virtual_stack_dim // self.subsamp[ilevel],
                                compression=self.compression, dtype=&#39;int16&#39;)
@@ -1847,6 +2014,7 @@ exposure_units: str, optional
 </summary>
 <pre><code class="python">def close(self):
     &#34;&#34;&#34;Save changes and close the H5 file.&#34;&#34;&#34;
+    self.file_object.flush()
     self.file_object.close()</code></pre>
 </details>
 </dd>
@@ -2046,6 +2214,7 @@ user_name: str, optional
 <h4><code><a title="npy2bdv.npy2bdv.BdvWriter" href="#npy2bdv.npy2bdv.BdvWriter">BdvWriter</a></code></h4>
 <ul class="">
 <li><code><a title="npy2bdv.npy2bdv.BdvWriter.append_plane" href="#npy2bdv.npy2bdv.BdvWriter.append_plane">append_plane</a></code></li>
+<li><code><a title="npy2bdv.npy2bdv.BdvWriter.append_substack" href="#npy2bdv.npy2bdv.BdvWriter.append_substack">append_substack</a></code></li>
 <li><code><a title="npy2bdv.npy2bdv.BdvWriter.append_view" href="#npy2bdv.npy2bdv.BdvWriter.append_view">append_view</a></code></li>
 <li><code><a title="npy2bdv.npy2bdv.BdvWriter.close" href="#npy2bdv.npy2bdv.BdvWriter.close">close</a></code></li>
 <li><code><a title="npy2bdv.npy2bdv.BdvWriter.write_xml_file" href="#npy2bdv.npy2bdv.BdvWriter.write_xml_file">write_xml_file</a></code></li>
