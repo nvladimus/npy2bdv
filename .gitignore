@@ -10,6 +10,7 @@ __pycache__/
 *.so
 
 npy2bdv/ignore/
+/test/test_files/
 
 # Distribution / packaging
 .packaging.bat
