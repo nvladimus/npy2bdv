@@ -1,6 +1,6 @@
 # npy2bdv
- A minimalistic library for writing image stacks (numpy arrays) into HDF5/XML datasets of 
- Fiji BigDataViewer/BigStitcher format. The library also supports reading the datasets into numpy and cropping them (in-place).
+ A library for writing/reading HDF5/XML datasets of 
+ Fiji BigDataViewer/BigStitcher format as numpy arrays. 
  
 [![Python 3.6](https://img.shields.io/badge/python-3.6-blue.svg)](https://www.python.org/downloads/release/python-360/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
@@ -14,8 +14,6 @@ For a quick start, see examples in the Jupyter
 
 API [reference](https://nvladimus.github.io/npy2bdv/).
 
-[Recent changes](CHANGELOG.md)
- 
  ## Supported H5/XML writing options
  * compression methods `None`, `gzip`, `lzf` (`None` by default).
  * downsampling options: 
@@ -27,16 +25,14 @@ API [reference](https://nvladimus.github.io/npy2bdv/).
  * arbitrary voxel calibration for each view, to account for spatial anisotropy.
  * individual views can differ in dimensions, voxel size, voxel units, exposure time, and exposure units.
  * missing views are labeled in XML automatically.
- * support of additiona meta-information:
+ * support of additional meta-information:
     - camera properties: `name`, `exposureTime`, `exposureUnits`
     - `microscope` (name and version), `user`
- * writing virtual stacks of arbitrary size plane-by-plane. Handy when your stack is larger than your RAM.
+ * writing virtual stacks of arbitrary size, by plane or sub-stack. Handy when your stack is larger than your RAM.
     - virtual stacks can be written with multiple subsampling levels and compression.
     
  ## New features
- - The H5/XML datasets can now be **edited** in-place, e.g. by cropping selected views in `x,y,z`, 
- and appending affine transforms to XML. Examples coming soon.
-
+ See [Recent changes](CHANGELOG.md)
  
  ## Writing speed
 Writing speeds up to 2300 MB/s can be achieved on a PC with SSD drive. 

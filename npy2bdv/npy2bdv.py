@@ -8,13 +8,12 @@ from xml.etree import ElementTree as ET
 import skimage.transform
 import shutil
 
-
-class _BdvBase:
+class BdvBase:
     __version__ = "2021.01"
 
     def __init__(self, filename):
         """
-        Base class for BdvWriter and BdvEditor classes. Not intended for user interaction.
+        Base class for `BdvWriter` and `BdvEditor` classes. Not intended for user interaction.
 
         Parameters:
         -----------
@@ -97,7 +96,7 @@ class _BdvBase:
     def append_affine(self, m_affine, name_affine="Appended affine transformation using npy2bdv.",
                       time=0, illumination=0, channel=0, tile=0, angle=0):
         """" Append affine matrix transformation to a view.
-        If using in BdvWriter, call BdvWriter.write_xml_file(...) first, to create a valid XML tree.
+        If using in `BdvWriter`, call `BdvWriter.write_xml_file(...)` first, to create a valid XML tree.
         The transformation will be placed on top,  e.g. executed by the BigStitcher last.
         The transformation is defined as matrix of shape (3,4).
         Each column represents coordinate unit vectors after the transformation.
@@ -156,7 +155,7 @@ class _BdvBase:
                 elem.tail = i
 
 
-class BdvWriter(_BdvBase):
+class BdvWriter(BdvBase):
 
     def __init__(self, filename,
                  subsamp=((1, 1, 1),),
@@ -252,7 +251,7 @@ class BdvWriter(_BdvBase):
             plane: array_like
                 A 2d numpy array of (y,x) pixel values.
             z: int
-                Plane z-position in the virtual stack.
+                Plane z-position in the virtual stack, >=0.
             time: int
                 Time index of the view, >=0.
             illumination: int
@@ -592,7 +591,7 @@ class BdvWriter(_BdvBase):
         self._file_object_h5.close()
 
 
-class BdvEditor(_BdvBase):
+class BdvEditor(BdvBase):
 
     def __init__(self, filename):
         """
@@ -740,5 +739,3 @@ class BdvEditor(_BdvBase):
             tree = ET.ElementTree(self._root)
             shutil.copy(self.filename_xml, self.filename_xml + '~1') # backup the previous XML file.
             tree.write(self.filename_xml, xml_declaration=True, encoding='utf-8', method="xml")
-
-
