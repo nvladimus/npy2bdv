@@ -52,6 +52,92 @@ class BdvBase:
             setup_id = None
         return setup_id
 
+    def _get_xml_root(self):
+        """Load the meta-information information from XML header file"""
+        assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
+        if self._root is None:
+            with open(self.filename_xml, 'r') as file:
+                self._root = ET.parse(file).getroot()
+        else:
+            pass
+
+    def read_affine(self, time=0, illumination=0, channel=0, tile=0, angle=0, index=0):
+        """" Read affine matrix transformation of a view from the XML file.
+
+        Parameters:
+        -----------
+            time: int
+                Time index, >=0.
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, >= 0.
+            index: int
+                Index of the transformation (default 0, i.e. the top one, which is applied last).
+
+        Returns:
+        --------
+            Numpy (3,4) float array, the transformation matrix.
+            """
+        self._get_xml_root()
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        found = False
+        for node in self._root.findall('./ViewRegistrations/ViewRegistration'):
+            if int(node.attrib['setup']) == isetup and int(node.attrib['timepoint']) == time:
+                found = True
+                break
+        assert found, f'Node not found: <ViewRegistration setup="{isetup}" timepoint="{time}">'
+        assert index < len(node), f'Index {index} out of range, only {len(node)} transforms found.'
+        affine_str = node[index].find('affine').text
+        affine_mx = np.fromstring(affine_str, sep='\n').reshape(3,4)
+        return affine_mx
+
+    def append_affine(self, m_affine, name_affine="Appended affine transformation using npy2bdv.",
+                      time=0, illumination=0, channel=0, tile=0, angle=0):
+        """" Append affine matrix transformation to a view.
+        If using in BdvWriter, call BdvWriter.write_xml_file(...) first, to create a valid XML tree.
+        The transformation will be placed on top,  e.g. executed by the BigStitcher last.
+        The transformation is defined as matrix of shape (3,4).
+        Each column represents coordinate unit vectors after the transformation.
+        The last column represents translation in (x,y,z).
+
+        Parameters:
+        -----------
+            time: int
+                Time index, >=0.
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, >= 0.
+            m_affine: numpy array of shape (3,4)
+                Coefficients of affine transformation matrix (m00, m01, ...)
+            name_affine: str, optional
+                Name of the affine transformation.
+            """
+        self._get_xml_root()
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        assert m_affine.shape == (3,4), "m_affine must be a numpy array of shape (3,4)"
+        found = False
+        for node in self._root.findall('./ViewRegistrations/ViewRegistration'):
+            if int(node.attrib['setup']) == isetup and int(node.attrib['timepoint']) == time:
+                found = True
+                break
+        assert found, f'Node not found: <ViewRegistration setup="{isetup}" timepoint="{time}">'
+        vt = ET.Element('ViewTransform')
+        node.insert(0, vt)
+        vt.set('type', 'affine')
+        ET.SubElement(vt, 'Name').text = name_affine
+        n_prec = 6
+        mx_string = np.array2string(m_affine.flatten(), separator=' ',
+                                    precision=n_prec, floatmode='fixed',
+                                    max_line_width=(n_prec + 6) * 4)
+        ET.SubElement(vt, 'affine').text = mx_string[1:-1].strip()
+        self._xml_indent(self._root)
+        tree = ET.ElementTree(self._root)
+        tree.write(self.filename_xml, xml_declaration=True, encoding='utf-8', method="xml")
+
     def _xml_indent(self, elem, level=0):
         """Pretty printing function"""
         i = "\n" + level * "  "
@@ -645,56 +731,6 @@ class BdvEditor(BdvBase):
         assert 0 <= isetup < len(props_list), f"Setup index {isetup} out of range 0..{len(props_list)-1}"
         value = tuple([type_caster(val) for val in props_list[isetup].text.split()])
         return value
-
-    def append_affine(self, m_affine, name_affine="Appended affine transformation using npy2bdv.",
-                      time=0, illumination=0, channel=0, tile=0, angle=0):
-        """" Append affine transformation to a view. This transformation will be placed on top,
-        e.g. executed by the BigStitcher last.
-        The transformation is defined as matrix of shape (3,4).
-        Each column represents coordinate unit vectors after the transformation.
-        The last column represents translation in (x,y,z).
-
-        Parameters:
-        -----------
-            time: int
-                Time index, >=0.
-            illumination: int
-            channel: int
-            tile: int
-            angle: int
-                Indices of the view attributes, >= 0.
-            m_affine: numpy array of shape (3,4)
-                Coefficients of affine transformation matrix (m00, m01, ...)
-            name_affine: str, optional
-                Name of the affine transformation.
-            """
-        self._get_xml_root()
-        isetup = self._determine_setup_id(illumination, channel, tile, angle)
-        assert m_affine.shape == (3,4), "m_affine must be a numpy array of shape (3,4)"
-        found = False
-        for node in self._root.findall('./ViewRegistrations/ViewRegistration'):
-            if int(node.attrib['setup']) == isetup and int(node.attrib['timepoint']) == time:
-                found = True
-                break
-        assert found, f'Node not found: <ViewRegistration setup="{isetup}" timepoint="{time}">'
-        vt = ET.Element('ViewTransform')
-        node.insert(0, vt)
-        vt.set('type', 'affine')
-        ET.SubElement(vt, 'Name').text = name_affine
-        n_prec = 6
-        mx_string = np.array2string(m_affine.flatten(), separator=' ',
-                                    precision=n_prec, floatmode='fixed',
-                                    max_line_width=(n_prec + 6) * 4)
-        ET.SubElement(vt, 'affine').text = mx_string[1:-1].strip()
-
-    def _get_xml_root(self):
-        """Load the meta-information information from XML header file"""
-        assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
-        if self._root is None:
-            with open(self.filename_xml, 'r') as file:
-                self._root = ET.parse(file).getroot()
-        else:
-            pass
 
     def finalize(self):
         """Finalize the H5 and XML files: save changes and close them."""
