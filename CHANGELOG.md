@@ -5,7 +5,8 @@
 :gem: new function `BdvWriter.append_substack()` to write substacks into a virtual stack. 
 This allows saving virtual stacks with multi-resolution pyramids downsampled in `z` as well as `(x,y)`.
 
-:gem: `BdvEditor.append_affine()`: affine transformation can be appended to an existing dataset (before, it was only possible when creating a new dataset via `BdvWriter.write_xml_file()`). 
+:gem: `BdvWriter` and `BdvEditor` method `.append_affine()`: affine transformation can be appended to an existing dataset. 
+Before, it was only possible when creating a new dataset in `BdvWriter.append_view()`. 
 
 :mag: **Test coverage**: The tests became much more comprehensive and cover most of the functionality.
 

@@ -9,8 +9,68 @@ import skimage.transform
 import shutil
 
 
-class BdvWriter:
-    __version__ = "2020.10"
+class BdvBase:
+
+    def __init__(self, filename):
+        """
+        Base class for BdvWriter and BdvEditor classes
+
+        Parameters:
+        -----------
+            filename: string,
+                Path to either .h5 or .xml file. The other file of the pair must be present
+                in the same folder.
+        """
+        self._fmt = 't{:05d}/s{:02d}/{}'
+        if filename[-2:] == 'h5':
+            self.filename_h5 = filename
+            self.filename_xml = filename[:-2] + 'xml'
+        elif filename[-3:] == 'xml':
+            self.filename_h5 = filename[:-3] + 'h5'
+            self.filename_xml = filename
+        self._root = None
+        self.ntimes = self.nilluminations = self.nchannels = self.ntiles = self.nangles = self.nsetups = None
+
+    def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
+        """Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
+        Parameters:
+        -----------
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+
+        Returns:
+        --------
+            setup_id: int, >=0 (first setup)
+            """
+        if self.nsetups is not None:
+            setup_id_matrix = np.arange(self.nsetups)
+            setup_id_matrix = setup_id_matrix.reshape((self.nilluminations, self.nchannels, self.ntiles, self.nangles))
+            setup_id = setup_id_matrix[illumination, channel, tile, angle]
+        else:
+            setup_id = None
+        return setup_id
+
+    def _xml_indent(self, elem, level=0):
+        """Pretty printing function"""
+        i = "\n" + level * "  "
+        if len(elem):
+            if not elem.text or not elem.text.strip():
+                elem.text = i + "  "
+            if not elem.tail or not elem.tail.strip():
+                elem.tail = i
+            for elem in elem:
+                self._xml_indent(elem, level + 1)
+            if not elem.tail or not elem.tail.strip():
+                elem.tail = i
+        else:
+            if level and (not elem.tail or not elem.tail.strip()):
+                elem.tail = i
+
+
+class BdvWriter(BdvBase):
+    __version__ = "2021.01"
 
     def __init__(self, filename,
                  subsamp=((1, 1, 1),),
@@ -56,7 +116,7 @@ class BdvWriter:
         if len(blockdim) < len(subsamp):
             print(f"INFO: blockdim levels ({len(blockdim)}) < subsamp levels ({len(subsamp)}):"
                   f" First-level block size {blockdim[0]} will be used for all levels")
-        self._fmt = 't{:05d}/s{:02d}/{}'
+        super().__init__(filename)
         self.nsetups = nilluminations * nchannels * ntiles * nangles
         self.nilluminations = nilluminations
         self.nchannels = nchannels
@@ -74,14 +134,13 @@ class BdvWriter:
         self.exposure_time = {}
         self.exposure_units = {}
         self.compression = compression
-        self.filename = filename
-        if os.path.exists(self.filename):
+        if os.path.exists(self.filename_h5):
             if overwrite:
-                os.remove(self.filename)
+                os.remove(self.filename_h5)
                 print("Warning: H5 file already exists, overwriting.")
             else:
-                raise FileExistsError(f"File {self.filename} already exists.")
-        self.file_object = h5py.File(filename, 'a')
+                raise FileExistsError(f"File {self.filename_h5} already exists.")
+        self._file_object_h5 = h5py.File(self.filename_h5, 'a')
         self._write_setups_header()
         self.virtual_stacks = False
         self.setup_id_present = [[False] * self.nsetups]
@@ -90,9 +149,9 @@ class BdvWriter:
         """Write resolutions and subdivisions for all setups into h5 file."""
         for isetup in range(self.nsetups):
             group_name = 's{:02d}'.format(isetup)
-            if group_name in self.file_object:
-                del self.file_object[group_name]
-            grp = self.file_object.create_group(group_name)
+            if group_name in self._file_object_h5:
+                del self._file_object_h5[group_name]
+            grp = self._file_object_h5.create_group(group_name)
             data_subsamp = np.flip(self.subsamp, 1)
             data_chunks = np.flip(self.chunks, 1)
             grp.create_dataset('resolutions', data=data_subsamp, dtype='<f8')
@@ -125,7 +184,7 @@ class BdvWriter:
         assert z < self.stack_shapes[isetup][0], "Plane index must be less than virtual stack z-dimension."
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
-            dataset = self.file_object[group_name]["cells"]
+            dataset = self._file_object_h5[group_name]["cells"]
             dataset[z, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype('int16')
 
     def append_substack(self, substack, z_start, y_start=0, x_start=0,
@@ -162,7 +221,7 @@ class BdvWriter:
             f"Substack offset {x_start} + x-dim {substack.shape[2]} > virtual stack x-dim {self.stack_shapes[isetup][2]}."
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
-            dataset = self.file_object[group_name]["cells"]
+            dataset = self._file_object_h5[group_name]["cells"]
             subdata = self._subsample_stack(substack, self.subsamp[ilevel]).astype('int16')
             dataset[z_start : z_start + substack.shape[0],
                     y_start : y_start + substack.shape[1],
@@ -220,9 +279,9 @@ class BdvWriter:
 
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
-            if group_name in self.file_object:
-                del self.file_object[group_name]
-            grp = self.file_object.create_group(group_name)
+            if group_name in self._file_object_h5:
+                del self._file_object_h5[group_name]
+            grp = self._file_object_h5.create_group(group_name)
             if stack is not None:
                 subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
                 grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
@@ -329,7 +388,7 @@ class BdvWriter:
         imgload.set('format', 'bdv.hdf5')
         el = ET.SubElement(imgload, 'hdf5')
         el.set('type', 'relative')
-        el.text = os.path.basename(self.filename)
+        el.text = os.path.basename(self.filename_h5)
         # write ViewSetups
         viewsets = ET.SubElement(seqdesc, 'ViewSetups')
         for iillumination in range(self.nilluminations):
@@ -431,28 +490,9 @@ class BdvWriter:
                     ET.SubElement(vt, 'affine').text = \
                         '{} 0.0 0.0 0.0 0.0 {} 0.0 0.0 0.0 0.0 {} 0.0'.format(calx, caly, calz)
 
-        _xml_indent(root)
+        self._xml_indent(root)
         tree = ET.ElementTree(root)
-        tree.write(os.path.splitext(self.filename)[0] + ".xml", xml_declaration=True, encoding='utf-8', method="xml")
-
-    def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
-        """Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
-        
-        Parameters:
-        -----------
-            illumination: int
-            channel: int)
-            tile: int
-            angle: int
-            
-        Returns:
-        --------
-            setup_id: int, >=0 (first setup)
-            """
-        setup_id_matrix = np.arange(self.nsetups)
-        setup_id_matrix = setup_id_matrix.reshape((self.nilluminations, self.nchannels, self.ntiles, self.nangles))
-        setup_id = setup_id_matrix[illumination, channel, tile, angle]
-        return setup_id
+        tree.write(self.filename_xml, xml_declaration=True, encoding='utf-8', method="xml")
 
     def _update_setup_id_present(self, isetup, itime):
         """Update the lookup table (list of lists) for missing setups"""
@@ -462,11 +502,11 @@ class BdvWriter:
 
     def close(self):
         """Save changes and close the H5 file."""
-        self.file_object.flush()
-        self.file_object.close()
+        self._file_object_h5.flush()
+        self._file_object_h5.close()
 
 
-class BdvEditor:
+class BdvEditor(BdvBase):
     __version__ = "2020.10"
 
     def __init__(self, filename):
@@ -481,13 +521,7 @@ class BdvEditor:
                 Path to either .h5 or .xml file. The other file of the pair must be present
                 in the same folder.
         """
-        self._fmt = 't{:05d}/s{:02d}/{}'
-        if filename[-2:] == 'h5':
-            self.filename_h5 = filename
-            self.filename_xml = filename[:-2] + 'xml'
-        elif filename[-3:] == 'xml':
-            self.filename_h5 = filename[:-3] + 'h5'
-            self.filename_xml = filename
+        super().__init__(filename)
         assert os.path.exists(self.filename_h5), f"Error: {self.filename_h5} file not found"
         assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
         self._file_object_h5 = h5py.File(self.filename_h5, 'r+')
@@ -580,25 +614,6 @@ class BdvEditor:
                     elem_size = elem.find("size")
                     elem_size.text = '{} {} {}'.format(nx, ny, nz)
 
-    def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
-        """Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
-
-        Parameters:
-        -----------
-            illumination: int
-            channel: int
-            tile: int
-            angle: int
-
-        Returns:
-        --------
-            setup_id: int, >=0 (first setup)
-            """
-        setup_id_matrix = np.arange(self.nsetups)
-        setup_id_matrix = setup_id_matrix.reshape((self.nilluminations, self.nchannels, self.ntiles, self.nangles))
-        setup_id = setup_id_matrix[illumination, channel, tile, angle]
-        return setup_id
-
     def get_view_property(self, key, illumination=0, channel=0, tile=0, angle=0) -> tuple:
         """"Get property of a vew setup from XML file. No time information required, since the setups are fixed.
         Tuples are returned in (x, y, z) order, as in the XML file.
@@ -686,24 +701,9 @@ class BdvEditor:
         if self._file_object_h5 is not None:
             self._file_object_h5.close()
         if self._root is not None:
-            _xml_indent(self._root)
+            self._xml_indent(self._root)
             tree = ET.ElementTree(self._root)
             shutil.copy(self.filename_xml, self.filename_xml + '~1') # backup the previous XML file.
             tree.write(self.filename_xml, xml_declaration=True, encoding='utf-8', method="xml")
 
 
-def _xml_indent(elem, level=0):
-    """Pretty printing function"""
-    i = "\n" + level * "  "
-    if len(elem):
-        if not elem.text or not elem.text.strip():
-            elem.text = i + "  "
-        if not elem.tail or not elem.tail.strip():
-            elem.tail = i
-        for elem in elem:
-            _xml_indent(elem, level + 1)
-        if not elem.tail or not elem.tail.strip():
-            elem.tail = i
-    else:
-        if level and (not elem.tail or not elem.tail.strip()):
-            elem.tail = i
