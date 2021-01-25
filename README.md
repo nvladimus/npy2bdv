@@ -12,7 +12,7 @@
 For a quick start, see examples in the Jupyter 
 [`notebook`](/docs/examples/examples_h5writing.ipynb).
 
-API [reference](https://nvladimus.github.io/npy2bdv/).
+API [documentation](https://nvladimus.github.io/npy2bdv/).
 
  ## Supported H5/XML writing options
  * compression methods `None`, `gzip`, `lzf` (`None` by default).
