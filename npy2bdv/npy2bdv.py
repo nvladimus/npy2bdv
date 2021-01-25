@@ -9,11 +9,12 @@ import skimage.transform
 import shutil
 
 
-class BdvBase:
+class _BdvBase:
+    __version__ = "2021.01"
 
     def __init__(self, filename):
         """
-        Base class for BdvWriter and BdvEditor classes
+        Base class for BdvWriter and BdvEditor classes. Not intended for user interaction.
 
         Parameters:
         -----------
@@ -155,8 +156,7 @@ class BdvBase:
                 elem.tail = i
 
 
-class BdvWriter(BdvBase):
-    __version__ = "2021.01"
+class BdvWriter(_BdvBase):
 
     def __init__(self, filename,
                  subsamp=((1, 1, 1),),
@@ -592,8 +592,7 @@ class BdvWriter(BdvBase):
         self._file_object_h5.close()
 
 
-class BdvEditor(BdvBase):
-    __version__ = "2020.10"
+class BdvEditor(_BdvBase):
 
     def __init__(self, filename):
         """

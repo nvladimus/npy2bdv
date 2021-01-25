@@ -20,6 +20,7 @@ class TestReadWrite(unittest.TestCase):
         self.NZ, self.NY, self.NX = 8, 35, 35 # XY dims must be odd to get nominal 65535 peak value.
         self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 4, 6, 4
         self.affine = np.random.uniform(0, 1, (3,4))
+        self.probe_t_ch_ill_tile_angle = (0, 1, 1, 0, 1) #pick a random index of a view to probe
         self.stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
         for z in range(self.NZ):
             self.stack[z, :, :] = generate_test_image((self.NY, self.NX), z, self.NZ)
@@ -41,7 +42,7 @@ class TestReadWrite(unittest.TestCase):
                                                    angle=i_angle,
                                                    voxel_size_xyz=(1, 1, 4))
         bdv_writer.write_xml_file(ntimes=self.N_T)
-        bdv_writer.append_affine(self.affine, 'test affine transform')
+        bdv_writer.append_affine(self.affine, 'test affine transform', *self.probe_t_ch_ill_tile_angle)
         bdv_writer.close()
 
     def test_range_uint16(self):
@@ -67,6 +68,13 @@ class TestReadWrite(unittest.TestCase):
         """"BdvReader(): does the meta-info in XML file have expected values?"""
         assert os.path.exists(self.fname), f'File {self.fname} not found.'
         editor = npy2bdv.BdvEditor(self.fname)
+        ntimes, nilluminations, nchannels, ntiles, nangles = editor.get_attribute_count()
+        self.assertEqual(ntimes, self.N_T, f"ntimes is incorrect: {ntimes}.")
+        self.assertEqual(nilluminations, self.N_ILL, f"nilluminations is incorrect: {nilluminations}.")
+        self.assertEqual(nchannels, self.N_CH, f"nchannels is incorrect: {nchannels}.")
+        self.assertEqual(ntiles, self.N_TILES, f"ntiles is incorrect: {ntiles}.")
+        self.assertEqual(nangles, self.N_ANGLES, f"nangles is incorrect: {nangles}.")
+
         for i_ch in range(self.N_CH):
             for i_illum in range(self.N_ILL):
                 for i_tile in range(self.N_TILES):
@@ -83,21 +91,9 @@ class TestReadWrite(unittest.TestCase):
                                                               angle=i_angle)
                         self.assertEqual(vox_size, (1, 1, 4), f"Voxel size is incorrect: {vox_size}.")
                         self.assertEqual(view_shape, self.stack.shape[::-1], f"View shape incorrect: {view_shape}.")
-        affine_read = editor.read_affine()
+        affine_read = editor.read_affine(*self.probe_t_ch_ill_tile_angle, index=0)
         self.assertAlmostEqual((affine_read - self.affine).sum(), 0, places=4,
                                msg=f"Affine matrix incorrect: {affine_read} vs {self.affine}.")
-        editor.finalize()
-
-    def test_attribute_counts(self):
-        """"BdvEditor(): do the attribute total counts have expected values?"""
-        assert os.path.exists(self.fname), f'File {self.fname} not found.'
-        editor = npy2bdv.BdvEditor(self.fname)
-        ntimes, nilluminations, nchannels, ntiles, nangles = editor.get_attribute_count()
-        self.assertEqual(ntimes, self.N_T, f"ntimes is incorrect: {ntimes}.")
-        self.assertEqual(nilluminations, self.N_ILL, f"nilluminations is incorrect: {nilluminations}.")
-        self.assertEqual(nchannels, self.N_CH, f"nchannels is incorrect: {nchannels}.")
-        self.assertEqual(ntiles, self.N_TILES, f"ntiles is incorrect: {ntiles}.")
-        self.assertEqual(nangles, self.N_ANGLES, f"nangles is incorrect: {nangles}.")
         editor.finalize()
 
     def test_cropping(self):
