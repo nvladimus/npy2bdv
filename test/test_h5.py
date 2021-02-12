@@ -17,38 +17,51 @@ class TestReadWrite(unittest.TestCase):
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
         self.fname = self.test_dir + "test_real_stack.h5"
-        self.NZ, self.NY, self.NX = 8, 35, 35 # XY dims must be odd to get nominal 65535 peak value.
+        self.NZ, self.NY, self.NX = 8, 32, 32
         self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 4, 6, 4
+        self.N_VIEWS = self.N_T*self.N_CH*self.N_ILL*self.N_TILES*self.N_ANGLES
         self.affine = np.random.uniform(0, 1, (3,4))
-        self.probe_t_ch_ill_tile_angle = (0, 1, 1, 0, 1) #pick a random index of a view to probe
-        self.stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
-        for z in range(self.NZ):
-            self.stack[z, :, :] = generate_test_image((self.NY, self.NX), z, self.NZ)
+        self.probe_t_ch_ill_tile_angle = (0, 1, 1, 0, 1) # pick a random index of a view to probe
+        self.stacks = []
+        # generate random views (stacks)
+        for t in range(self.N_T):
+            for i_ch in range(self.N_CH):
+                for i_illum in range(self.N_ILL):
+                    for i_tile in range(self.N_TILES):
+                        for i_angle in range(self.N_ANGLES):
+                            stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
+                            peak = np.random.randint(100, 65535)
+                            for z in range(self.NZ):
+                                stack[z, :, :] = generate_test_image((self.NY, self.NX), z, self.NZ, peak=peak)
+                            self.stacks.append(stack)
 
         bdv_writer = npy2bdv.BdvWriter(self.fname,
                                        nchannels=self.N_CH,
                                        nilluminations=self.N_ILL,
                                        ntiles=self.N_TILES,
                                        nangles=self.N_ANGLES)
+        i = 0
         for t in range(self.N_T):
             for i_ch in range(self.N_CH):
                 for i_illum in range(self.N_ILL):
                     for i_tile in range(self.N_TILES):
                         for i_angle in range(self.N_ANGLES):
-                            bdv_writer.append_view(self.stack, time=t,
+                            bdv_writer.append_view(self.stacks[i], time=t,
                                                    channel=i_ch,
                                                    illumination=i_illum,
                                                    tile=i_tile,
                                                    angle=i_angle,
                                                    voxel_size_xyz=(1, 1, 4))
+                            i += 1
         bdv_writer.write_xml_file(ntimes=self.N_T)
         bdv_writer.append_affine(self.affine, 'test affine transform', *self.probe_t_ch_ill_tile_angle)
         bdv_writer.close()
 
-    def test_range_uint16(self):
+    def test_pixels(self):
         """Check if the reader imports full uint16 range correctly"""
         assert os.path.exists(self.fname), f'File {self.fname} not found.'
         editor = npy2bdv.BdvEditor(self.fname)
+        i = 0
         for t in range(self.N_T):
             for i_ch in range(self.N_CH):
                 for i_illum in range(self.N_ILL):
@@ -59,9 +72,8 @@ class TestReadWrite(unittest.TestCase):
                                                     illumination=i_illum,
                                                     tile=i_tile,
                                                     angle=i_angle)
-                            self.assertTrue(view.min() >= 0, f"Min() value incorrect: {view.min()}")
-                            self.assertTrue(view.max() == 65535, f"Max() value incorrect: {view.max()}")
-                            self.assertTrue((view == self.stack).all(), "Written stack differs from the loaded stack.")
+                            self.assertTrue((view == self.stacks[i]).all(), "Written stack differs from the loaded one.")
+                            i += 1
         editor.finalize()
 
     def test_view_properties(self):
@@ -75,6 +87,7 @@ class TestReadWrite(unittest.TestCase):
         self.assertEqual(ntiles, self.N_TILES, f"ntiles is incorrect: {ntiles}.")
         self.assertEqual(nangles, self.N_ANGLES, f"nangles is incorrect: {nangles}.")
 
+        i = 0
         for i_ch in range(self.N_CH):
             for i_illum in range(self.N_ILL):
                 for i_tile in range(self.N_TILES):
@@ -90,7 +103,8 @@ class TestReadWrite(unittest.TestCase):
                                                               tile=i_tile,
                                                               angle=i_angle)
                         self.assertEqual(vox_size, (1, 1, 4), f"Voxel size is incorrect: {vox_size}.")
-                        self.assertEqual(view_shape, self.stack.shape[::-1], f"View shape incorrect: {view_shape}.")
+                        self.assertEqual(view_shape, self.stacks[i].shape[::-1], f"View shape incorrect: {view_shape}.")
+                        i += 1
         affine_read = editor.read_affine(*self.probe_t_ch_ill_tile_angle, index=0)
         self.assertAlmostEqual((affine_read - self.affine).sum(), 0, places=4,
                                msg=f"Affine matrix incorrect: {affine_read} vs {self.affine}.")
@@ -166,15 +180,18 @@ class TestReadWriteVirtual(unittest.TestCase):
         self.fname0 = self.test_dir + "test_virtual_by_plane.h5"
         self.fname1 = self.test_dir + "test_virtual_by_substack.h5"
 
-        self.NZ, self.NY, self.NX = 8, 256, 256  # XY dims must be odd to get nominal 65535 peak value.
-        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 2, 2, 2
+        self.NZ, self.NY, self.NX = 8, 256, 256
+        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 2, 3, 2
+        self.N_VIEWS = self.N_T * self.N_CH * self.N_ILL * self.N_TILES * self.N_ANGLES
         self.N_SUBSTACKS = 4
 
-        self.plane = np.empty((self.NY, self.NX), "uint16")
-        self.substack = np.empty((self.NZ//self.N_SUBSTACKS, self.NY, self.NX), "uint16")
-        self.plane = generate_test_image((self.NY, self.NX), 1, 2)
-        for z in range(self.NZ//self.N_SUBSTACKS):
-            self.substack[z, :, :] = generate_test_image((self.NY, self.NX), z, self.NZ//self.N_SUBSTACKS)
+        self.stacks = []
+        for i_stack in range(self.N_VIEWS):
+            peak = np.random.randint(100, 65535)
+            stack = np.empty((self.NZ, self.NY, self.NX), "uint16")
+            for z in range(self.NZ):
+                stack[z, :, :] = generate_test_image((self.NY, self.NX), z, self.NZ, peak=peak)
+            self.stacks.append(stack)
 
         self.write_virtual_by_plane()
         self.write_virtual_by_substack()
@@ -185,6 +202,7 @@ class TestReadWriteVirtual(unittest.TestCase):
                                        nilluminations=self.N_ILL,
                                        ntiles=self.N_TILES,
                                        nangles=self.N_ANGLES)
+        i = 0
         for t in range(self.N_T):
             for i_ch in range(self.N_CH):
                 for i_illum in range(self.N_ILL):
@@ -198,10 +216,11 @@ class TestReadWriteVirtual(unittest.TestCase):
                                                    tile=i_tile,
                                                    angle=i_angle)
                             for iz in range(self.NZ):
-                                bdv_writer.append_plane(plane=self.plane,
+                                bdv_writer.append_plane(plane=self.stacks[i][iz, :, :],
                                                         z=iz,
                                                         time=t, channel=i_ch, illumination=i_illum,
                                                         tile=i_tile, angle=i_angle)
+                            i += 1
         bdv_writer.write_xml_file(ntimes=self.N_T)
         bdv_writer.close()
 
@@ -225,22 +244,25 @@ class TestReadWriteVirtual(unittest.TestCase):
                                                    time=t, channel=i_ch, illumination=i_illum,
                                                    tile=i_tile, angle=i_angle)
         # Populate the virtual stacks
+        i = 0
         for t in range(self.N_T):
             for i_ch in range(self.N_CH):
                 for i_illum in range(self.N_ILL):
                     for i_tile in range(self.N_TILES):
                         for i_angle in range(self.N_ANGLES):
                             for isub in range(self.N_SUBSTACKS):
-                                bdv_writer.append_substack(substack=self.substack,
-                                                           z_start=isub*self.substack.shape[0],
+                                zslice = slice(isub*(self.NZ//self.N_SUBSTACKS), (isub+1)*(self.NZ//self.N_SUBSTACKS))
+                                bdv_writer.append_substack(substack=self.stacks[i][zslice, :, :],
+                                                           z_start=zslice.start,
                                                            time=t, channel=i_ch, illumination=i_illum,
                                                            tile=i_tile, angle=i_angle)
+                            i += 1
         bdv_writer.write_xml_file(ntimes=self.N_T)
         bdv_writer.close()
 
-    def test_read_voxels(self):
-        """"Read the voxel values back and compare to expected values"""
-        editor = npy2bdv.BdvEditor(self.fname1)
+    def compare_pixels(self, filename):
+        editor = npy2bdv.BdvEditor(filename)
+        i_stack = 0
         for t in range(self.N_T):
             for i_ch in range(self.N_CH):
                 for i_illum in range(self.N_ILL):
@@ -248,9 +270,15 @@ class TestReadWriteVirtual(unittest.TestCase):
                         for i_angle in range(self.N_ANGLES):
                             view = editor.read_view(time=t, channel=i_ch, illumination=i_illum,
                                                     tile=i_tile, angle=i_angle)
-                            self.assertAlmostEqual(np.mean(view), np.mean(self.substack), 6, "Mean differs.")
-                            self.assertAlmostEqual(np.std(view), np.std(self.substack), 6, "Std differs.")
+                            self.assertTrue((view == self.stacks[i_stack]).all(),
+                                            "Written stack differs from the loaded one.")
+                            i_stack += 1
         editor.finalize()
+
+    def test_read_voxels(self):
+        """"Read the voxel values back and compare to expected values"""
+        self.compare_pixels(self.fname0)
+        self.compare_pixels(self.fname1)
 
     def tearDown(self) -> None:
         """"Tidies up after EACH test method has been run."""
