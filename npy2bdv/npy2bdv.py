@@ -265,8 +265,10 @@ class BdvWriter(BdvBase):
                                     "see append_view(stack=None,...)"
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         self._update_setup_id_present(isetup, time)
-        assert plane.shape == self.stack_shapes[isetup][1:], "Plane dimensions must match (y,x) size of virtual stack."
-        assert z < self.stack_shapes[isetup][0], "Plane index must be less than virtual stack z-dimension."
+        assert plane.shape == self.stack_shapes[isetup][1:], f"Plane dimensions {plane.shape} do not match (y,x) size" \
+                                                             f" of virtual stack {self.stack_shapes[isetup][1:]}."
+        assert z < self.stack_shapes[isetup][0], f"Plane index {z} must be less than " \
+                                                 f"virtual stack z-dimension {self.stack_shapes[isetup][0]}."
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self._file_object_h5[group_name]["cells"]
