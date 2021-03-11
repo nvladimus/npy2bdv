@@ -7,6 +7,8 @@ import numpy as np
 from xml.etree import ElementTree as ET
 import skimage.transform
 import shutil
+from pathlib import Path
+
 
 class BdvBase:
     __version__ = "2021.01"
@@ -26,8 +28,19 @@ class BdvBase:
             self.filename_h5 = filename
             self.filename_xml = filename[:-2] + 'xml'
         elif filename[-3:] == 'xml':
-            self.filename_h5 = filename[:-3] + 'h5'
-            self.filename_xml = filename
+            try:
+                et = ET.parse(filename)
+                root = et.getroot()
+                sq = root.find('SequenceDescription')
+                iml = sq.find('ImageLoader')
+                hdf5_ = iml.find('hdf5')
+                image_file_name = hdf5_.text
+                image_file = Path(filename).parent.joinpath(image_file_name)
+                self.filename_h5 = image_file
+                self.filename_xml = filename
+            except Exception as e:
+                self.filename_h5 = filename[:-3] + 'h5'
+                self.filename_xml = filename
         self._root = None
         self.ntimes = self.nilluminations = self.nchannels = self.ntiles = self.nangles = self.nsetups = None
 
