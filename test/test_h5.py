@@ -6,6 +6,9 @@ import unittest
 import numpy as np
 from .sample import generate_test_image
 
+TOY_DATASET_PATH = './test/toy_datasets/'
+FILE_EXTENSION = 'h5' # set either 'h5' or 'xml'. This should be parsed correctly either way.
+
 np.random.seed(1)
 
 class TestReadWrite(unittest.TestCase):
@@ -16,7 +19,7 @@ class TestReadWrite(unittest.TestCase):
         self.test_dir = "./test/test_files/"
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
-        self.fname = self.test_dir + "test_real_stack.h5"
+        self.fname = self.test_dir + "test_real_stack." + FILE_EXTENSION
         self.NZ, self.NY, self.NX = 8, 32, 32
         self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 4, 6, 4
         self.N_VIEWS = self.N_T*self.N_CH*self.N_ILL*self.N_TILES*self.N_ANGLES
@@ -177,8 +180,8 @@ class TestReadWriteVirtual(unittest.TestCase):
         self.test_dir = "./test/test_files/"
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
-        self.fname0 = self.test_dir + "test_virtual_by_plane.h5"
-        self.fname1 = self.test_dir + "test_virtual_by_substack.h5"
+        self.fname0 = self.test_dir + "test_virtual_by_plane." + FILE_EXTENSION
+        self.fname1 = self.test_dir + "test_virtual_by_substack." + FILE_EXTENSION
 
         self.NZ, self.NY, self.NX = 8, 256, 256
         self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 2, 3, 2
@@ -284,6 +287,24 @@ class TestReadWriteVirtual(unittest.TestCase):
         """"Tidies up after EACH test method has been run."""
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
+
+
+class TestToyDatasets(unittest.TestCase):
+    """Test on existing (small) datasets.
+    """
+
+    def test_kidney(self):
+        fname_xml = TOY_DATASET_PATH + 'kidney/kidney.xml'
+        fname_xml1 = TOY_DATASET_PATH + 'kidney/kidney_v1.xml'
+        fname_h5 = TOY_DATASET_PATH + 'kidney/kidney.h5'
+
+        for fname in (fname_xml, fname_xml1, fname_h5):
+            assert os.path.exists(fname), f'File {fname} not found.'
+
+        editor = npy2bdv.BdvEditor(fname_xml)
+        editor1 = npy2bdv.BdvEditor(fname_xml1)
+        view, view1 = editor.read_view(), editor1.read_view()
+        self.assertTrue((view == view1).all(), f"Views loaded using files {fname_xml}, {fname_xml1} are different.")
 
 
 if __name__ == '__main__':

@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<SpimData version="0.2">
+  <BasePath type="relative">.</BasePath>
+  <SequenceDescription>
+    <ImageLoader format="bdv.hdf5">
+      <hdf5 type="relative">kidney.h5</hdf5>
+    </ImageLoader>
+    <ViewSetups>
+      <ViewSetup>
+        <id>0</id>
+        <name>0</name>
+        <size>111 172 32</size>
+        <voxelSize>
+          <unit>µm</unit>
+          <size>65.62110374696502 65.603883749918 160.00000000000003</size>
+        </voxelSize>
+        <attributes>
+          <illumination>0</illumination>
+          <channel>0</channel>
+          <tile>0</tile>
+          <angle>0</angle>
+        </attributes>
+      </ViewSetup>
+      <ViewSetup>
+        <id>1</id>
+        <name>1</name>
+        <size>111 172 32</size>
+        <voxelSize>
+          <unit>µm</unit>
+          <size>65.62110374696502 65.603883749918 160.00000000000003</size>
+        </voxelSize>
+        <attributes>
+          <illumination>0</illumination>
+          <channel>1</channel>
+          <tile>0</tile>
+          <angle>0</angle>
+        </attributes>
+      </ViewSetup>
+      <ViewSetup>
+        <id>2</id>
+        <name>2</name>
+        <size>111 172 32</size>
+        <voxelSize>
+          <unit>µm</unit>
+          <size>65.62110374696502 65.603883749918 160.00000000000003</size>
+        </voxelSize>
+        <attributes>
+          <illumination>0</illumination>
+          <channel>2</channel>
+          <tile>0</tile>
+          <angle>0</angle>
+        </attributes>
+      </ViewSetup>
+      <Attributes name="illumination">
+        <Illumination>
+          <id>0</id>
+          <name>Left</name>
+        </Illumination>
+      </Attributes>
+      <Attributes name="channel">
+        <Channel>
+          <id>0</id>
+          <name>561</name>
+        </Channel>
+        <Channel>
+          <id>1</id>
+          <name>1</name>
+        </Channel>
+        <Channel>
+          <id>2</id>
+          <name>2</name>
+        </Channel>
+      </Attributes>
+      <Attributes name="tile">
+        <Tile>
+          <id>0</id>
+          <name>0</name>
+        </Tile>
+      </Attributes>
+      <Attributes name="angle">
+        <Angle>
+          <id>0</id>
+          <name>0</name>
+        </Angle>
+      </Attributes>
+    </ViewSetups>
+    <Timepoints type="pattern">
+      <integerpattern>0</integerpattern>
+    </Timepoints>
+    <MissingViews />
+  </SequenceDescription>
+  <ViewRegistrations>
+    <ViewRegistration timepoint="0" setup="0">
+      <ViewTransform type="affine">
+        <Name>calibration</Name>
+        <affine>1.0002624844149877 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 2.43888 0.0</affine>
+      </ViewTransform>
+    </ViewRegistration>
+    <ViewRegistration timepoint="0" setup="1">
+      <ViewTransform type="affine">
+        <Name>calibration</Name>
+        <affine>1.0002624844149877 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 2.43888 0.0</affine>
+      </ViewTransform>
+    </ViewRegistration>
+    <ViewRegistration timepoint="0" setup="2">
+      <ViewTransform type="affine">
+        <Name>calibration</Name>
+        <affine>1.0002624844149877 0.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 0.0 2.43888 0.0</affine>
+      </ViewTransform>
+    </ViewRegistration>
+  </ViewRegistrations>
+  <ViewInterestPoints />
+  <BoundingBoxes />
+  <PointSpreadFunctions />
+  <StitchingResults />
+  <IntensityAdjustments />
+</SpimData>
