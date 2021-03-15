@@ -20,25 +20,27 @@ class BdvBase:
         Parameters:
         -----------
             filename: string,
-                Path to either .h5 or .xml file. The other file of the pair must be present
-                in the same folder.
+                Path to either .h5 or .xml file. The other file of the pair will be in the same folder.
         """
         self._fmt = 't{:05d}/s{:02d}/{}'
         if filename[-2:] == 'h5':
             self.filename_h5 = filename
             self.filename_xml = filename[:-2] + 'xml'
         elif filename[-3:] == 'xml':
-            try:
-                et = ET.parse(filename)
-                root = et.getroot()
-                sq = root.find('SequenceDescription')
-                iml = sq.find('ImageLoader')
-                hdf5_ = iml.find('hdf5')
-                image_file_name = hdf5_.text
-                image_file = Path(filename).parent.joinpath(image_file_name)
-                self.filename_h5 = image_file
-                self.filename_xml = filename
-            except Exception as e:
+            if os.path.exists(filename):  # if the XML file already exists (editor mode)
+                try:
+                    et = ET.parse(filename)
+                    root = et.getroot()
+                    sq = root.find('SequenceDescription')
+                    iml = sq.find('ImageLoader')
+                    hdf5_ = iml.find('hdf5')
+                    image_file_name = hdf5_.text
+                    image_file = Path(filename).parent.joinpath(image_file_name)
+                    self.filename_h5 = image_file
+                    self.filename_xml = filename
+                except Exception as e:
+                    raise ValueError(f"Could no parse XML file {filename}")
+            else:  # to create a new file pair H5/XML
                 self.filename_h5 = filename[:-3] + 'h5'
                 self.filename_xml = filename
         self._root = None

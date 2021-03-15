@@ -11,6 +11,8 @@ __pycache__/
 
 npy2bdv/ignore/
 /test/test_files/
+!/test/toy_datasets/*/*.xml
+!/test/toy_datasets/*/*.h5
 
 # Distribution / packaging
 .packaging.bat
