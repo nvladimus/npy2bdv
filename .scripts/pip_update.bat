@@ -1,6 +1,6 @@
 REM A script for updating the package
 REM run these commands in Anaconda py3.6 terminal
-cd ../dist
+cd ./dist
 del "*.gz" "*.whl"
 cd ..
 python setup.py sdist bdist_wheel
