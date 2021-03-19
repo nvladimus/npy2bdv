@@ -1,6 +1,7 @@
 ## v.1.0.6
 :gem: Multiple XML files pointing to the same H5 data file are supported. 
-This allows having several versions of registration or other processing (defined in XML files). See PR #9.
+This allows having several versions of registration or other processing (defined in XML files). 
+See [PR #9](https://github.com/nvladimus/npy2bdv/pull/9).
 
 :gem: Set labels for view attributes that will be visible in BDV/BigSticher, 
 e.g. `.set_attribute_labels('channel', ('488', '561'))`.
