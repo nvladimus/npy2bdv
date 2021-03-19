@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1" />
-<meta name="generator" content="pdoc 0.9.1" />
+<meta name="generator" content="pdoc 0.9.2" />
 <title>npy2bdv.npy2bdv API documentation</title>
 <meta name="description" content="" />
 <link rel="preload stylesheet" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/10up-sanitize.css/11.0.1/sanitize.min.css" integrity="sha256-PK9q560IAAa6WVRRh76LtCaI8pjTJ2z11v0miyNNjrs=" crossorigin>
@@ -35,6 +35,8 @@ import numpy as np
 from xml.etree import ElementTree as ET
 import skimage.transform
 import shutil
+from pathlib import Path
+
 
 class BdvBase:
     __version__ = &#34;2021.01&#34;
@@ -46,16 +48,29 @@ class BdvBase:
         Parameters:
         -----------
             filename: string,
-                Path to either .h5 or .xml file. The other file of the pair must be present
-                in the same folder.
+                Path to either .h5 or .xml file. The other file of the pair will be in the same folder.
         &#34;&#34;&#34;
         self._fmt = &#39;t{:05d}/s{:02d}/{}&#39;
         if filename[-2:] == &#39;h5&#39;:
             self.filename_h5 = filename
             self.filename_xml = filename[:-2] + &#39;xml&#39;
         elif filename[-3:] == &#39;xml&#39;:
-            self.filename_h5 = filename[:-3] + &#39;h5&#39;
-            self.filename_xml = filename
+            if os.path.exists(filename):  # if the XML file already exists (editor mode)
+                try:
+                    et = ET.parse(filename)
+                    root = et.getroot()
+                    sq = root.find(&#39;SequenceDescription&#39;)
+                    iml = sq.find(&#39;ImageLoader&#39;)
+                    hdf5_ = iml.find(&#39;hdf5&#39;)
+                    image_file_name = hdf5_.text
+                    image_file = Path(filename).parent.joinpath(image_file_name)
+                    self.filename_h5 = image_file
+                    self.filename_xml = filename
+                except Exception as e:
+                    raise ValueError(f&#34;Could no parse XML file {filename}&#34;)
+            else:  # to create a new file pair H5/XML
+                self.filename_h5 = filename[:-3] + &#39;h5&#39;
+                self.filename_xml = filename
         self._root = None
         self.ntimes = self.nilluminations = self.nchannels = self.ntiles = self.nangles = self.nsetups = None
 
@@ -235,6 +250,8 @@ class BdvWriter(BdvBase):
         self.nchannels = nchannels
         self.ntiles = ntiles
         self.nangles = nangles
+        self.attribute_counts = {&#39;illumination&#39;: self.nilluminations, &#39;channel&#39;: self.nchannels,
+                                 &#39;angle&#39;: self.nangles, &#39;tile&#39;: self.ntiles}
         self.subsamp = np.asarray(subsamp)
         self.nlevels = len(subsamp)
         self.chunks = self._compute_chunk_size(blockdim)
@@ -246,6 +263,7 @@ class BdvWriter(BdvBase):
         self.voxel_units = {}
         self.exposure_time = {}
         self.exposure_units = {}
+        self.attribute_labels = {}
         self.compression = compression
         if os.path.exists(self.filename_h5):
             if overwrite:
@@ -257,6 +275,26 @@ class BdvWriter(BdvBase):
         self._write_setups_header()
         self.virtual_stacks = False
         self.setup_id_present = [[False] * self.nsetups]
+
+    def set_attribute_labels(self, attribute: str, labels: tuple) -&gt; None:
+        &#34;&#34;&#34;
+        Set the view attribute labels that will be visible in BDV/BigStitcher, e.g. `&#39;channel&#39;: (&#39;488&#39;, &#39;561&#39;)`.
+
+        Example: `writer.set_attribute_labels(&#39;channel&#39;, (&#39;488&#39;, &#39;561&#39;))`.
+
+        Parameters:
+        -----------
+            attribute: str
+                One of the view attributes: &#39;illumination&#39;, &#39;channel&#39;, &#39;angle&#39;, &#39;tile&#39;.
+
+            labels: array-like
+                Tuple of labels, e.g. for illumination, (&#39;left&#39;, &#39;right&#39;); for channel, (&#39;488&#39;, &#39;561&#39;).
+        &#34;&#34;&#34;
+
+        assert attribute in self.attribute_counts.keys(), f&#39;Attribute must be one of {self.attribute_counts.keys()}&#39;
+        assert len(labels) == self.attribute_counts[attribute], f&#39;Length of labels {len(labels)} must &#39; \
+                                                   f&#39;match the number of attributes {self.attribute_counts[attribute]}&#39;
+        self.attribute_labels[attribute] = labels
 
     def _write_setups_header(self):
         &#34;&#34;&#34;Write resolutions and subdivisions for all setups into h5 file.&#34;&#34;&#34;
@@ -293,8 +331,10 @@ class BdvWriter(BdvBase):
                                     &#34;see append_view(stack=None,...)&#34;
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         self._update_setup_id_present(isetup, time)
-        assert plane.shape == self.stack_shapes[isetup][1:], &#34;Plane dimensions must match (y,x) size of virtual stack.&#34;
-        assert z &lt; self.stack_shapes[isetup][0], &#34;Plane index must be less than virtual stack z-dimension.&#34;
+        assert plane.shape == self.stack_shapes[isetup][1:], f&#34;Plane dimensions {plane.shape} do not match (y,x) size&#34; \
+                                                             f&#34; of virtual stack {self.stack_shapes[isetup][1:]}.&#34;
+        assert z &lt; self.stack_shapes[isetup][0], f&#34;Plane index {z} must be less than &#34; \
+                                                 f&#34;virtual stack z-dimension {self.stack_shapes[isetup][0]}.&#34;
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self._file_object_h5[group_name][&#34;cells&#34;]
@@ -531,34 +571,18 @@ class BdvWriter(BdvBase):
                             ET.SubElement(a, &#39;tile&#39;).text = str(itile)
                             ET.SubElement(a, &#39;angle&#39;).text = str(iangle)
 
-        # write Attributes (range of values)
-        attrs_illum = ET.SubElement(viewsets, &#39;Attributes&#39;)
-        attrs_illum.set(&#39;name&#39;, &#39;illumination&#39;)
-        for iilumination in range(self.nilluminations):
-            illum = ET.SubElement(attrs_illum, &#39;Illumination&#39;)
-            ET.SubElement(illum, &#39;id&#39;).text = str(iilumination)
-            ET.SubElement(illum, &#39;name&#39;).text = &#39;illumination &#39; + str(iilumination)
-
-        attrs_chan = ET.SubElement(viewsets, &#39;Attributes&#39;)
-        attrs_chan.set(&#39;name&#39;, &#39;channel&#39;)
-        for ichannel in range(self.nchannels):
-            chan = ET.SubElement(attrs_chan, &#39;Channel&#39;)
-            ET.SubElement(chan, &#39;id&#39;).text = str(ichannel)
-            ET.SubElement(chan, &#39;name&#39;).text = &#39;channel &#39; + str(ichannel)
-
-        attrs_tile = ET.SubElement(viewsets, &#39;Attributes&#39;)
-        attrs_tile.set(&#39;name&#39;, &#39;tile&#39;)
-        for itile in range(self.ntiles):
-            tile = ET.SubElement(attrs_tile, &#39;Tile&#39;)
-            ET.SubElement(tile, &#39;id&#39;).text = str(itile)
-            ET.SubElement(tile, &#39;name&#39;).text = &#39;tile &#39; + str(itile)
-
-        attrs_ang = ET.SubElement(viewsets, &#39;Attributes&#39;)
-        attrs_ang.set(&#39;name&#39;, &#39;angle&#39;)
-        for iangle in range(self.nangles):
-            ang = ET.SubElement(attrs_ang, &#39;Angle&#39;)
-            ET.SubElement(ang, &#39;id&#39;).text = str(iangle)
-            ET.SubElement(ang, &#39;name&#39;).text = &#39;angle &#39; + str(iangle)
+        # write Attributes
+        for attribute in self.attribute_counts.keys():
+            attrs = ET.SubElement(viewsets, &#39;Attributes&#39;)
+            attrs.set(&#39;name&#39;, attribute)
+            for i_attr in range(self.attribute_counts[attribute]):
+                att = ET.SubElement(attrs, attribute.capitalize())
+                ET.SubElement(att, &#39;id&#39;).text = str(i_attr)
+                if attribute in self.attribute_labels.keys() and i_attr &lt; len(self.attribute_labels[attribute]):
+                    name = str(self.attribute_labels[attribute][i_attr])
+                else:
+                    name = str(i_attr)
+                ET.SubElement(att, &#39;name&#39;).text = name
 
         # Time points
         tpoints = ET.SubElement(seqdesc, &#39;Timepoints&#39;)
@@ -786,8 +810,7 @@ class BdvEditor(BdvBase):
 <div class="desc"><p>Base class for <code><a title="npy2bdv.npy2bdv.BdvWriter" href="#npy2bdv.npy2bdv.BdvWriter">BdvWriter</a></code> and <code><a title="npy2bdv.npy2bdv.BdvEditor" href="#npy2bdv.npy2bdv.BdvEditor">BdvEditor</a></code> classes. Not intended for user interaction.</p>
 <h2 id="parameters">Parameters:</h2>
 <pre><code>filename: string,
-    Path to either .h5 or .xml file. The other file of the pair must be present
-    in the same folder.
+    Path to either .h5 or .xml file. The other file of the pair will be in the same folder.
 </code></pre></div>
 <details class="source">
 <summary>
@@ -803,16 +826,29 @@ class BdvEditor(BdvBase):
         Parameters:
         -----------
             filename: string,
-                Path to either .h5 or .xml file. The other file of the pair must be present
-                in the same folder.
+                Path to either .h5 or .xml file. The other file of the pair will be in the same folder.
         &#34;&#34;&#34;
         self._fmt = &#39;t{:05d}/s{:02d}/{}&#39;
         if filename[-2:] == &#39;h5&#39;:
             self.filename_h5 = filename
             self.filename_xml = filename[:-2] + &#39;xml&#39;
         elif filename[-3:] == &#39;xml&#39;:
-            self.filename_h5 = filename[:-3] + &#39;h5&#39;
-            self.filename_xml = filename
+            if os.path.exists(filename):  # if the XML file already exists (editor mode)
+                try:
+                    et = ET.parse(filename)
+                    root = et.getroot()
+                    sq = root.find(&#39;SequenceDescription&#39;)
+                    iml = sq.find(&#39;ImageLoader&#39;)
+                    hdf5_ = iml.find(&#39;hdf5&#39;)
+                    image_file_name = hdf5_.text
+                    image_file = Path(filename).parent.joinpath(image_file_name)
+                    self.filename_h5 = image_file
+                    self.filename_xml = filename
+                except Exception as e:
+                    raise ValueError(f&#34;Could no parse XML file {filename}&#34;)
+            else:  # to create a new file pair H5/XML
+                self.filename_h5 = filename[:-3] + &#39;h5&#39;
+                self.filename_xml = filename
         self._root = None
         self.ntimes = self.nilluminations = self.nchannels = self.ntiles = self.nangles = self.nsetups = None
 
@@ -1568,6 +1604,8 @@ Block size can be larger than stack dimension.</p></div>
         self.nchannels = nchannels
         self.ntiles = ntiles
         self.nangles = nangles
+        self.attribute_counts = {&#39;illumination&#39;: self.nilluminations, &#39;channel&#39;: self.nchannels,
+                                 &#39;angle&#39;: self.nangles, &#39;tile&#39;: self.ntiles}
         self.subsamp = np.asarray(subsamp)
         self.nlevels = len(subsamp)
         self.chunks = self._compute_chunk_size(blockdim)
@@ -1579,6 +1617,7 @@ Block size can be larger than stack dimension.</p></div>
         self.voxel_units = {}
         self.exposure_time = {}
         self.exposure_units = {}
+        self.attribute_labels = {}
         self.compression = compression
         if os.path.exists(self.filename_h5):
             if overwrite:
@@ -1590,6 +1629,26 @@ Block size can be larger than stack dimension.</p></div>
         self._write_setups_header()
         self.virtual_stacks = False
         self.setup_id_present = [[False] * self.nsetups]
+
+    def set_attribute_labels(self, attribute: str, labels: tuple) -&gt; None:
+        &#34;&#34;&#34;
+        Set the view attribute labels that will be visible in BDV/BigStitcher, e.g. `&#39;channel&#39;: (&#39;488&#39;, &#39;561&#39;)`.
+
+        Example: `writer.set_attribute_labels(&#39;channel&#39;, (&#39;488&#39;, &#39;561&#39;))`.
+
+        Parameters:
+        -----------
+            attribute: str
+                One of the view attributes: &#39;illumination&#39;, &#39;channel&#39;, &#39;angle&#39;, &#39;tile&#39;.
+
+            labels: array-like
+                Tuple of labels, e.g. for illumination, (&#39;left&#39;, &#39;right&#39;); for channel, (&#39;488&#39;, &#39;561&#39;).
+        &#34;&#34;&#34;
+
+        assert attribute in self.attribute_counts.keys(), f&#39;Attribute must be one of {self.attribute_counts.keys()}&#39;
+        assert len(labels) == self.attribute_counts[attribute], f&#39;Length of labels {len(labels)} must &#39; \
+                                                   f&#39;match the number of attributes {self.attribute_counts[attribute]}&#39;
+        self.attribute_labels[attribute] = labels
 
     def _write_setups_header(self):
         &#34;&#34;&#34;Write resolutions and subdivisions for all setups into h5 file.&#34;&#34;&#34;
@@ -1626,8 +1685,10 @@ Block size can be larger than stack dimension.</p></div>
                                     &#34;see append_view(stack=None,...)&#34;
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         self._update_setup_id_present(isetup, time)
-        assert plane.shape == self.stack_shapes[isetup][1:], &#34;Plane dimensions must match (y,x) size of virtual stack.&#34;
-        assert z &lt; self.stack_shapes[isetup][0], &#34;Plane index must be less than virtual stack z-dimension.&#34;
+        assert plane.shape == self.stack_shapes[isetup][1:], f&#34;Plane dimensions {plane.shape} do not match (y,x) size&#34; \
+                                                             f&#34; of virtual stack {self.stack_shapes[isetup][1:]}.&#34;
+        assert z &lt; self.stack_shapes[isetup][0], f&#34;Plane index {z} must be less than &#34; \
+                                                 f&#34;virtual stack z-dimension {self.stack_shapes[isetup][0]}.&#34;
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self._file_object_h5[group_name][&#34;cells&#34;]
@@ -1864,34 +1925,18 @@ Block size can be larger than stack dimension.</p></div>
                             ET.SubElement(a, &#39;tile&#39;).text = str(itile)
                             ET.SubElement(a, &#39;angle&#39;).text = str(iangle)
 
-        # write Attributes (range of values)
-        attrs_illum = ET.SubElement(viewsets, &#39;Attributes&#39;)
-        attrs_illum.set(&#39;name&#39;, &#39;illumination&#39;)
-        for iilumination in range(self.nilluminations):
-            illum = ET.SubElement(attrs_illum, &#39;Illumination&#39;)
-            ET.SubElement(illum, &#39;id&#39;).text = str(iilumination)
-            ET.SubElement(illum, &#39;name&#39;).text = &#39;illumination &#39; + str(iilumination)
-
-        attrs_chan = ET.SubElement(viewsets, &#39;Attributes&#39;)
-        attrs_chan.set(&#39;name&#39;, &#39;channel&#39;)
-        for ichannel in range(self.nchannels):
-            chan = ET.SubElement(attrs_chan, &#39;Channel&#39;)
-            ET.SubElement(chan, &#39;id&#39;).text = str(ichannel)
-            ET.SubElement(chan, &#39;name&#39;).text = &#39;channel &#39; + str(ichannel)
-
-        attrs_tile = ET.SubElement(viewsets, &#39;Attributes&#39;)
-        attrs_tile.set(&#39;name&#39;, &#39;tile&#39;)
-        for itile in range(self.ntiles):
-            tile = ET.SubElement(attrs_tile, &#39;Tile&#39;)
-            ET.SubElement(tile, &#39;id&#39;).text = str(itile)
-            ET.SubElement(tile, &#39;name&#39;).text = &#39;tile &#39; + str(itile)
-
-        attrs_ang = ET.SubElement(viewsets, &#39;Attributes&#39;)
-        attrs_ang.set(&#39;name&#39;, &#39;angle&#39;)
-        for iangle in range(self.nangles):
-            ang = ET.SubElement(attrs_ang, &#39;Angle&#39;)
-            ET.SubElement(ang, &#39;id&#39;).text = str(iangle)
-            ET.SubElement(ang, &#39;name&#39;).text = &#39;angle &#39; + str(iangle)
+        # write Attributes
+        for attribute in self.attribute_counts.keys():
+            attrs = ET.SubElement(viewsets, &#39;Attributes&#39;)
+            attrs.set(&#39;name&#39;, attribute)
+            for i_attr in range(self.attribute_counts[attribute]):
+                att = ET.SubElement(attrs, attribute.capitalize())
+                ET.SubElement(att, &#39;id&#39;).text = str(i_attr)
+                if attribute in self.attribute_labels.keys() and i_attr &lt; len(self.attribute_labels[attribute]):
+                    name = str(self.attribute_labels[attribute][i_attr])
+                else:
+                    name = str(i_attr)
+                ET.SubElement(att, &#39;name&#39;).text = name
 
         # Time points
         tpoints = ET.SubElement(seqdesc, &#39;Timepoints&#39;)
@@ -2003,8 +2048,10 @@ angle: int
                                 &#34;see append_view(stack=None,...)&#34;
     isetup = self._determine_setup_id(illumination, channel, tile, angle)
     self._update_setup_id_present(isetup, time)
-    assert plane.shape == self.stack_shapes[isetup][1:], &#34;Plane dimensions must match (y,x) size of virtual stack.&#34;
-    assert z &lt; self.stack_shapes[isetup][0], &#34;Plane index must be less than virtual stack z-dimension.&#34;
+    assert plane.shape == self.stack_shapes[isetup][1:], f&#34;Plane dimensions {plane.shape} do not match (y,x) size&#34; \
+                                                         f&#34; of virtual stack {self.stack_shapes[isetup][1:]}.&#34;
+    assert z &lt; self.stack_shapes[isetup][0], f&#34;Plane index {z} must be less than &#34; \
+                                             f&#34;virtual stack z-dimension {self.stack_shapes[isetup][0]}.&#34;
     for ilevel in range(self.nlevels):
         group_name = self._fmt.format(time, isetup, ilevel)
         dataset = self._file_object_h5[group_name][&#34;cells&#34;]
@@ -2202,6 +2249,44 @@ exposure_units: str, optional
     self._file_object_h5.close()</code></pre>
 </details>
 </dd>
+<dt id="npy2bdv.npy2bdv.BdvWriter.set_attribute_labels"><code class="name flex">
+<span>def <span class="ident">set_attribute_labels</span></span>(<span>self, attribute: str, labels: tuple) ‑> NoneType</span>
+</code></dt>
+<dd>
+<div class="desc"><p>Set the view attribute labels that will be visible in BDV/BigStitcher, e.g. <code>'channel': ('488', '561')</code>.</p>
+<p>Example: <code>writer.set_attribute_labels('channel', ('488', '561'))</code>.</p>
+<h2 id="parameters">Parameters:</h2>
+<pre><code>attribute: str
+    One of the view attributes: 'illumination', 'channel', 'angle', 'tile'.
+
+labels: array-like
+    Tuple of labels, e.g. for illumination, ('left', 'right'); for channel, ('488', '561').
+</code></pre></div>
+<details class="source">
+<summary>
+<span>Expand source code</span>
+</summary>
+<pre><code class="python">def set_attribute_labels(self, attribute: str, labels: tuple) -&gt; None:
+    &#34;&#34;&#34;
+    Set the view attribute labels that will be visible in BDV/BigStitcher, e.g. `&#39;channel&#39;: (&#39;488&#39;, &#39;561&#39;)`.
+
+    Example: `writer.set_attribute_labels(&#39;channel&#39;, (&#39;488&#39;, &#39;561&#39;))`.
+
+    Parameters:
+    -----------
+        attribute: str
+            One of the view attributes: &#39;illumination&#39;, &#39;channel&#39;, &#39;angle&#39;, &#39;tile&#39;.
+
+        labels: array-like
+            Tuple of labels, e.g. for illumination, (&#39;left&#39;, &#39;right&#39;); for channel, (&#39;488&#39;, &#39;561&#39;).
+    &#34;&#34;&#34;
+
+    assert attribute in self.attribute_counts.keys(), f&#39;Attribute must be one of {self.attribute_counts.keys()}&#39;
+    assert len(labels) == self.attribute_counts[attribute], f&#39;Length of labels {len(labels)} must &#39; \
+                                               f&#39;match the number of attributes {self.attribute_counts[attribute]}&#39;
+    self.attribute_labels[attribute] = labels</code></pre>
+</details>
+</dd>
 <dt id="npy2bdv.npy2bdv.BdvWriter.write_xml_file"><code class="name flex">
 <span>def <span class="ident">write_xml_file</span></span>(<span>self, ntimes=1, camera_name='default', microscope_name='default', microscope_version='0.0', user_name='user')</span>
 </code></dt>
@@ -2288,34 +2373,18 @@ user_name: str, optional
                         ET.SubElement(a, &#39;tile&#39;).text = str(itile)
                         ET.SubElement(a, &#39;angle&#39;).text = str(iangle)
 
-    # write Attributes (range of values)
-    attrs_illum = ET.SubElement(viewsets, &#39;Attributes&#39;)
-    attrs_illum.set(&#39;name&#39;, &#39;illumination&#39;)
-    for iilumination in range(self.nilluminations):
-        illum = ET.SubElement(attrs_illum, &#39;Illumination&#39;)
-        ET.SubElement(illum, &#39;id&#39;).text = str(iilumination)
-        ET.SubElement(illum, &#39;name&#39;).text = &#39;illumination &#39; + str(iilumination)
-
-    attrs_chan = ET.SubElement(viewsets, &#39;Attributes&#39;)
-    attrs_chan.set(&#39;name&#39;, &#39;channel&#39;)
-    for ichannel in range(self.nchannels):
-        chan = ET.SubElement(attrs_chan, &#39;Channel&#39;)
-        ET.SubElement(chan, &#39;id&#39;).text = str(ichannel)
-        ET.SubElement(chan, &#39;name&#39;).text = &#39;channel &#39; + str(ichannel)
-
-    attrs_tile = ET.SubElement(viewsets, &#39;Attributes&#39;)
-    attrs_tile.set(&#39;name&#39;, &#39;tile&#39;)
-    for itile in range(self.ntiles):
-        tile = ET.SubElement(attrs_tile, &#39;Tile&#39;)
-        ET.SubElement(tile, &#39;id&#39;).text = str(itile)
-        ET.SubElement(tile, &#39;name&#39;).text = &#39;tile &#39; + str(itile)
-
-    attrs_ang = ET.SubElement(viewsets, &#39;Attributes&#39;)
-    attrs_ang.set(&#39;name&#39;, &#39;angle&#39;)
-    for iangle in range(self.nangles):
-        ang = ET.SubElement(attrs_ang, &#39;Angle&#39;)
-        ET.SubElement(ang, &#39;id&#39;).text = str(iangle)
-        ET.SubElement(ang, &#39;name&#39;).text = &#39;angle &#39; + str(iangle)
+    # write Attributes
+    for attribute in self.attribute_counts.keys():
+        attrs = ET.SubElement(viewsets, &#39;Attributes&#39;)
+        attrs.set(&#39;name&#39;, attribute)
+        for i_attr in range(self.attribute_counts[attribute]):
+            att = ET.SubElement(attrs, attribute.capitalize())
+            ET.SubElement(att, &#39;id&#39;).text = str(i_attr)
+            if attribute in self.attribute_labels.keys() and i_attr &lt; len(self.attribute_labels[attribute]):
+                name = str(self.attribute_labels[attribute][i_attr])
+            else:
+                name = str(i_attr)
+            ET.SubElement(att, &#39;name&#39;).text = name
 
     # Time points
     tpoints = ET.SubElement(seqdesc, &#39;Timepoints&#39;)
@@ -2416,6 +2485,7 @@ user_name: str, optional
 <li><code><a title="npy2bdv.npy2bdv.BdvWriter.append_substack" href="#npy2bdv.npy2bdv.BdvWriter.append_substack">append_substack</a></code></li>
 <li><code><a title="npy2bdv.npy2bdv.BdvWriter.append_view" href="#npy2bdv.npy2bdv.BdvWriter.append_view">append_view</a></code></li>
 <li><code><a title="npy2bdv.npy2bdv.BdvWriter.close" href="#npy2bdv.npy2bdv.BdvWriter.close">close</a></code></li>
+<li><code><a title="npy2bdv.npy2bdv.BdvWriter.set_attribute_labels" href="#npy2bdv.npy2bdv.BdvWriter.set_attribute_labels">set_attribute_labels</a></code></li>
 <li><code><a title="npy2bdv.npy2bdv.BdvWriter.write_xml_file" href="#npy2bdv.npy2bdv.BdvWriter.write_xml_file">write_xml_file</a></code></li>
 </ul>
 </li>
@@ -2425,7 +2495,7 @@ user_name: str, optional
 </nav>
 </main>
 <footer id="footer">
-<p>Generated by <a href="https://pdoc3.github.io/pdoc"><cite>pdoc</cite> 0.9.1</a>.</p>
+<p>Generated by <a href="https://pdoc3.github.io/pdoc"><cite>pdoc</cite> 0.9.2</a>.</p>
 </footer>
 </body>
 </html>

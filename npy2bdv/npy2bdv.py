@@ -249,15 +249,19 @@ class BdvWriter(BdvBase):
         self.setup_id_present = [[False] * self.nsetups]
 
     def set_attribute_labels(self, attribute: str, labels: tuple) -> None:
-        """Set the view attribute labels that will be visible in BDV/BigStitcher, e.g. 'channel': ('488', '561').
+        """
+        Set the view attribute labels that will be visible in BDV/BigStitcher, e.g. `'channel': ('488', '561')`.
+
+        Example: `writer.set_attribute_labels('channel', ('488', '561'))`.
 
         Parameters:
         -----------
-        attribute: str
-            One of the view attributes: 'illumination', 'channel', 'angle', 'tile'.
-        labels: array-like
-            Tuple of labels, e.g. for illumination, ('left', 'right'); for channel, ('488', '561').
-            """
+            attribute: str
+                One of the view attributes: 'illumination', 'channel', 'angle', 'tile'.
+
+            labels: array-like
+                Tuple of labels, e.g. for illumination, ('left', 'right'); for channel, ('488', '561').
+        """
 
         assert attribute in self.attribute_counts.keys(), f'Attribute must be one of {self.attribute_counts.keys()}'
         assert len(labels) == self.attribute_counts[attribute], f'Length of labels {len(labels)} must ' \
