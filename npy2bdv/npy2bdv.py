@@ -222,6 +222,8 @@ class BdvWriter(BdvBase):
         self.nchannels = nchannels
         self.ntiles = ntiles
         self.nangles = nangles
+        self.attribute_counts = {'illumination': self.nilluminations, 'channel': self.nchannels,
+                                 'angle': self.nangles, 'tile': self.ntiles}
         self.subsamp = np.asarray(subsamp)
         self.nlevels = len(subsamp)
         self.chunks = self._compute_chunk_size(blockdim)
@@ -233,6 +235,7 @@ class BdvWriter(BdvBase):
         self.voxel_units = {}
         self.exposure_time = {}
         self.exposure_units = {}
+        self.attribute_labels = {}
         self.compression = compression
         if os.path.exists(self.filename_h5):
             if overwrite:
@@ -244,6 +247,22 @@ class BdvWriter(BdvBase):
         self._write_setups_header()
         self.virtual_stacks = False
         self.setup_id_present = [[False] * self.nsetups]
+
+    def set_attribute_labels(self, attribute: str, labels: tuple) -> None:
+        """Set the view attribute labels that will be visible in BDV/BigStitcher, e.g. 'channel': ('488', '561').
+
+        Parameters:
+        -----------
+        attribute: str
+            One of the view attributes: 'illumination', 'channel', 'angle', 'tile'.
+        labels: array-like
+            Tuple of labels, e.g. for illumination, ('left', 'right'); for channel, ('488', '561').
+            """
+
+        assert attribute in self.attribute_counts.keys(), f'Attribute must be one of {self.attribute_counts.keys()}'
+        assert len(labels) == self.attribute_counts[attribute], f'Length of labels {len(labels)} must ' \
+                                                   f'match the number of attributes {self.attribute_counts[attribute]}'
+        self.attribute_labels[attribute] = labels
 
     def _write_setups_header(self):
         """Write resolutions and subdivisions for all setups into h5 file."""
@@ -520,34 +539,18 @@ class BdvWriter(BdvBase):
                             ET.SubElement(a, 'tile').text = str(itile)
                             ET.SubElement(a, 'angle').text = str(iangle)
 
-        # write Attributes (range of values)
-        attrs_illum = ET.SubElement(viewsets, 'Attributes')
-        attrs_illum.set('name', 'illumination')
-        for iilumination in range(self.nilluminations):
-            illum = ET.SubElement(attrs_illum, 'Illumination')
-            ET.SubElement(illum, 'id').text = str(iilumination)
-            ET.SubElement(illum, 'name').text = 'illumination ' + str(iilumination)
-
-        attrs_chan = ET.SubElement(viewsets, 'Attributes')
-        attrs_chan.set('name', 'channel')
-        for ichannel in range(self.nchannels):
-            chan = ET.SubElement(attrs_chan, 'Channel')
-            ET.SubElement(chan, 'id').text = str(ichannel)
-            ET.SubElement(chan, 'name').text = 'channel ' + str(ichannel)
-
-        attrs_tile = ET.SubElement(viewsets, 'Attributes')
-        attrs_tile.set('name', 'tile')
-        for itile in range(self.ntiles):
-            tile = ET.SubElement(attrs_tile, 'Tile')
-            ET.SubElement(tile, 'id').text = str(itile)
-            ET.SubElement(tile, 'name').text = 'tile ' + str(itile)
-
-        attrs_ang = ET.SubElement(viewsets, 'Attributes')
-        attrs_ang.set('name', 'angle')
-        for iangle in range(self.nangles):
-            ang = ET.SubElement(attrs_ang, 'Angle')
-            ET.SubElement(ang, 'id').text = str(iangle)
-            ET.SubElement(ang, 'name').text = 'angle ' + str(iangle)
+        # write Attributes
+        for attribute in self.attribute_counts.keys():
+            attrs = ET.SubElement(viewsets, 'Attributes')
+            attrs.set('name', attribute)
+            for i_attr in range(self.attribute_counts[attribute]):
+                att = ET.SubElement(attrs, attribute.capitalize())
+                ET.SubElement(att, 'id').text = str(i_attr)
+                if attribute in self.attribute_labels.keys() and i_attr < len(self.attribute_labels[attribute]):
+                    name = str(self.attribute_labels[attribute][i_attr])
+                else:
+                    name = str(i_attr)
+                ET.SubElement(att, 'name').text = name
 
         # Time points
         tpoints = ET.SubElement(seqdesc, 'Timepoints')
