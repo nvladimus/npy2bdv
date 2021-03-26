@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 class BdvBase:
-    __version__ = "2021.01"
+    __version__ = "2021.03"
 
     def __init__(self, filename):
         """
@@ -44,7 +44,10 @@ class BdvBase:
                 self.filename_h5 = filename[:-3] + 'h5'
                 self.filename_xml = filename
         self._root = None
-        self.ntimes = self.nilluminations = self.nchannels = self.ntiles = self.nangles = self.nsetups = None
+        self.nlevels = None
+        self.ntimes = self.nilluminations = self.nchannels = self.ntiles = self.nangles = self.nsetups = 0
+        self.compression = None
+        self.compressions_supported = (None, 'gzip', 'lzf')
 
     def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
         """Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
@@ -169,6 +172,83 @@ class BdvBase:
             if level and (not elem.tail or not elem.tail.strip()):
                 elem.tail = i
 
+    def _subsample_stack(self, stack, subsamp_level):
+        """Subsampling of a 3d stack.
+
+        Parameters:
+        -----------
+            stack, numpy 3d array (z,y,x) of int16
+            subsamp_level, array-like with 3 elements, eg (2,4,4) for downsampling z(x2), x and y (x4).
+
+        Returns:
+        --------
+            down-scaled stack, unit16 type.
+        """
+        if all(subsamp_level[:] == 1):
+            stack_sub = stack
+        else:
+            stack_sub = skimage.transform.downscale_local_mean(stack, tuple(subsamp_level)).astype(np.uint16)
+        return stack_sub
+
+    def _write_pyramids_header(self):
+        """Write resolutions and subdivisions for all setups into h5 file."""
+        for isetup in range(self.nsetups):
+            group_name = 's{:02d}'.format(isetup)
+            if group_name in self._file_object_h5:
+                grp = self._file_object_h5[group_name]
+                flipped_subsamp = np.flip(self.subsamp, 1)
+                flipped_blockdim = np.flip(self.chunks, 1)
+                res_dataset = grp['resolutions']
+                subdiv_dataset = grp['subdivisions']
+                res_dataset.resize(flipped_subsamp.shape)
+                subdiv_dataset.resize(flipped_blockdim.shape)
+                res_dataset[:] = flipped_subsamp
+                subdiv_dataset[:] = flipped_blockdim
+            else:
+                raise ValueError(f"Group name {group_name} not found in the H5 file.")
+
+    def create_pyramids(self, subsamp=((4, 8, 8),), blockdim=((8, 128, 128),), compression=None) -> None:
+        """ Compute and write downsampled versions (pyramids) of the existing image dataset.
+
+        Parameters:
+        -----------
+        :param subsamp: tuple of tuples
+                Subsampling levels in (z,y,x) order. Integers >= 1, default value ((4, 8, 8),).
+        :param blockdim: tuple of tuples
+                Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),).
+                Optimal block size ~0.5 MB.
+        :param compression: None or str
+                (None, 'gzip', 'lzf'), HDF5 compression method. Default is None for high-speed writing.
+        :return: None
+        """
+        assert len(self.subsamp) > 0, f"No full-res data is found, len(self.subsamp) = {len(self.subsamp)}"
+        assert len(self.subsamp) > 0, f"No full-res data is found, len(self.chunks) = {len(self.chunks)}"
+        assert self.nsetups > 0, f"Dataset has no views! self.nsetups = {self.nsetups}"
+        assert self._file_object_h5 is not None, "H5 file object (self._file_object_h5) is None!"
+        assert len(self.subsamp) == len(self.chunks), f"Length of subsampling tuple {len(subsamp)} must " \
+                                              f"be == length of block dimensions {len(blockdim)}."
+        for isub in range(len(subsamp)):
+            assert sum(subsamp[isub]) > 3, f"At least one subsampling factor from {subsamp[isub]} must be > 1."
+        assert compression in self.compressions_supported, f'Unknown compression, must be one of' \
+                                                           f' {self.compressions_supported}'
+
+        self.subsamp = np.asarray([self.subsamp[0]] + list(subsamp))
+        self.chunks = np.asarray([self.chunks[0]] + list(blockdim))
+        self.nlevels = len(self.subsamp)
+
+        self._write_pyramids_header()
+        for time in range(self.ntimes):
+            for isetup in range(self.nsetups):
+                for ilevel in range(1, self.nlevels):
+                    full_res_group_name = self._fmt.format(time, isetup, 0)
+                    if full_res_group_name in self._file_object_h5:
+                        raw_data = self._file_object_h5[full_res_group_name]['cells']
+                        pyramid_group_name = self._fmt.format(time, isetup, ilevel)
+                        grp = self._file_object_h5.create_group(pyramid_group_name)
+                        subdata = self._subsample_stack(raw_data, self.subsamp[ilevel]).astype('int16')
+                        grp.create_dataset('cells', data=subdata, chunks=tuple(self.chunks[ilevel]),
+                                           maxshape=(None, None, None), compression=self.compression, dtype='int16')
+
 
 class BdvWriter(BdvBase):
 
@@ -206,17 +286,18 @@ class BdvWriter(BdvBase):
         For example, block dimensions (4,256,256)px gives ~0.5MB block size for type int16 (2 bytes) and writes very fast.
         Block size can be larger than stack dimension.
         """
+        super().__init__(filename)
         assert nilluminations >= 1, "Total number of illuminations must be at least 1."
         assert nchannels >= 1, "Total number of channels must be at least 1."
         assert ntiles >= 1, "Total number of tiles must be at least 1."
         assert nangles >= 1, "Total number of angles must be at least 1."
-        assert compression in (None, 'gzip', 'lzf'), 'Unknown compression type'
+        assert compression in self.compressions_supported, f'Unknown compression, must be one of' \
+                                                           f' {self.compressions_supported}'
         assert all([isinstance(element, int) for tupl in subsamp for element in
                     tupl]), 'subsamp values should be integers >= 1.'
         if len(blockdim) < len(subsamp):
             print(f"INFO: blockdim levels ({len(blockdim)}) < subsamp levels ({len(subsamp)}):"
                   f" First-level block size {blockdim[0]} will be used for all levels")
-        super().__init__(filename)
         self.nsetups = nilluminations * nchannels * ntiles * nangles
         self.nilluminations = nilluminations
         self.nchannels = nchannels
@@ -268,6 +349,20 @@ class BdvWriter(BdvBase):
                                                    f'match the number of attributes {self.attribute_counts[attribute]}'
         self.attribute_labels[attribute] = labels
 
+    def _compute_chunk_size(self, blockdim):
+        """Populate the size of h5 chunks (blocks).
+        Use first-level chunk size if there are more subsampling levels than chunk size levels.
+        """
+        chunks = []
+        base_level = blockdim[0]
+        if len(blockdim) < len(self.subsamp):
+            for ilevel in range(len(self.subsamp)):
+                chunks.append(base_level)
+            chunks_tuple = tuple(chunks)
+        else:
+            chunks_tuple = blockdim
+        return chunks_tuple
+
     def _write_setups_header(self):
         """Write resolutions and subdivisions for all setups into h5 file."""
         for isetup in range(self.nsetups):
@@ -277,8 +372,8 @@ class BdvWriter(BdvBase):
             grp = self._file_object_h5.create_group(group_name)
             data_subsamp = np.flip(self.subsamp, 1)
             data_chunks = np.flip(self.chunks, 1)
-            grp.create_dataset('resolutions', data=data_subsamp, dtype='<f8')
-            grp.create_dataset('subdivisions', data=data_chunks, dtype='<i4')
+            grp.create_dataset('resolutions', data=data_subsamp, dtype='<f8', maxshape=(None, 3))
+            grp.create_dataset('subdivisions', data=data_chunks, dtype='<i4', maxshape=(None, 3))
 
     def append_plane(self, plane, z, time=0, illumination=0, channel=0, tile=0, angle=0):
         """Append a plane to a virtual stack. Requires stack initialization by calling e.g.
@@ -392,6 +487,8 @@ class BdvWriter(BdvBase):
         
         assert len(calibration) == 3, "Calibration must be a tuple of 3 elements (x, y, z)."
         assert len(voxel_size_xyz) == 3, "Voxel size must be a tuple of 3 elements (x, y, z)."
+        if time > self.ntimes - 1:
+            self.ntimes = time + 1
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         self._update_setup_id_present(isetup, time)
         if stack is not None:
@@ -405,6 +502,7 @@ class BdvWriter(BdvBase):
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             if group_name in self._file_object_h5:
+                print(f"Overwriting H5 group {group_name}")
                 del self._file_object_h5[group_name]
             grp = self._file_object_h5.create_group(group_name)
             if stack is not None:
@@ -423,38 +521,6 @@ class BdvWriter(BdvBase):
         self.voxel_units[isetup] = voxel_units
         self.exposure_time[isetup] = exposure_time
         self.exposure_units[isetup] = exposure_units
-
-    def _compute_chunk_size(self, blockdim):
-        """Populate the size of h5 chunks.
-        Use first-level chunk size if there are more subsampling levels than chunk size levels.
-        """
-        chunks = []
-        base_level = blockdim[0]
-        if len(blockdim) < len(self.subsamp):
-            for ilevel in range(len(self.subsamp)):
-                chunks.append(base_level)
-            chunks_tuple = tuple(chunks)
-        else:
-            chunks_tuple = blockdim
-        return chunks_tuple
-
-    def _subsample_stack(self, stack, subsamp_level):
-        """Subsampling of 3d stack.
-        
-        Parameters:
-        -----------
-            stack, numpy 3d array (z,y,x) of int16
-            subsamp_level, array-like with 3 elements, eg (2,4,4) for downsampling z(x2), x and y (x4).
-            
-        Returns:
-        --------
-            down-scaled stack, unit16 type.
-        """
-        if all(subsamp_level[:] == 1):
-            stack_sub = stack
-        else:
-            stack_sub = skimage.transform.downscale_local_mean(stack, tuple(subsamp_level)).astype(np.uint16)
-        return stack_sub
 
     def _subsample_plane(self, plane, subsamp_level):
         """Subsampling of a 2d plane.
@@ -475,23 +541,20 @@ class BdvWriter(BdvBase):
             plane_sub = skimage.transform.downscale_local_mean(plane, tuple(subsamp_level[1:])).astype(np.uint16)
         return plane_sub
 
-    def write_xml_file(self, ntimes=1,
-                       camera_name="default",  microscope_name="default",
+    def write_xml_file(self, camera_name="default",  microscope_name="default",
                        microscope_version="0.0", user_name="user"):
         """
         Write XML header file for the HDF5 file.
 
         Parameters:
         -----------
-            ntimes: int
-                Number of time points
             camera_name: str, optional
                 Name of the camera (same for all setups at the moment)
             microscope_name: str, optional
             microscope_version: str, optional
             user_name: str, optional
         """
-        assert ntimes >= 1, "Total number of time points must be at least 1."
+        assert self.ntimes >= 1, "Total number of time points must be at least 1."
         root = ET.Element('SpimData')
         root.set('version', '0.2')
         bp = ET.SubElement(root, 'BasePath')
@@ -560,7 +623,7 @@ class BdvWriter(BdvBase):
         tpoints = ET.SubElement(seqdesc, 'Timepoints')
         tpoints.set('type', 'range')
         ET.SubElement(tpoints, 'first').text = str(0)
-        ET.SubElement(tpoints, 'last').text = str(ntimes - 1)
+        ET.SubElement(tpoints, 'last').text = str(self.ntimes - 1)
 
         # missing views
         if any(True in l for l in self.setup_id_present):
@@ -574,7 +637,7 @@ class BdvWriter(BdvBase):
 
         # Transformations of coordinate system
         vregs = ET.SubElement(root, 'ViewRegistrations')
-        for itime in range(ntimes):
+        for itime in range(self.ntimes):
             for isetup in range(self.nsetups):
                 if self.setup_id_present[itime][isetup]:
                     vreg = ET.SubElement(vregs, 'ViewRegistration')

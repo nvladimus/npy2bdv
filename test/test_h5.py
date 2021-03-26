@@ -20,11 +20,13 @@ class TestReadWrite(unittest.TestCase):
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
         self.fname = self.test_dir + "test_real_stack." + FILE_EXTENSION
-        self.NZ, self.NY, self.NX = 8, 32, 32
-        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 4, 6, 4
+        self.NZ, self.NY, self.NX = 16, 64, 64
+        self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 2, 3, 2
         self.N_VIEWS = self.N_T*self.N_CH*self.N_ILL*self.N_TILES*self.N_ANGLES
-        self.affine = np.random.uniform(0, 1, (3,4))
+        self.affine = np.random.uniform(0, 1, (3, 4))
         self.probe_t_ch_ill_tile_angle = (0, 1, 1, 0, 1) # pick a random index of a view to probe
+        self.subsamp = ((1, 1, 1), (2, 4, 4),)  # OPTIONAL param
+        self.blockdim = ((8, 32, 32), (4, 8, 8),) # OPTIONAL param
         self.stacks = []
         # generate random views (stacks)
         for t in range(self.N_T):
@@ -42,7 +44,10 @@ class TestReadWrite(unittest.TestCase):
                                        nchannels=self.N_CH,
                                        nilluminations=self.N_ILL,
                                        ntiles=self.N_TILES,
-                                       nangles=self.N_ANGLES)
+                                       nangles=self.N_ANGLES,
+                                       #subsamp=self.subsamp,
+                                       #blockdim=self.blockdim,
+                                       )
         i = 0
         for t in range(self.N_T):
             for i_ch in range(self.N_CH):
@@ -56,7 +61,8 @@ class TestReadWrite(unittest.TestCase):
                                                    angle=i_angle,
                                                    voxel_size_xyz=(1, 1, 4))
                             i += 1
-        bdv_writer.write_xml_file(ntimes=self.N_T)
+        bdv_writer.create_pyramids(subsamp=self.subsamp[1:], blockdim=self.blockdim[1:])
+        bdv_writer.write_xml_file()
         bdv_writer.append_affine(self.affine, 'test affine transform', *self.probe_t_ch_ill_tile_angle)
         bdv_writer.close()
 
@@ -224,7 +230,7 @@ class TestReadWriteVirtual(unittest.TestCase):
                                                         time=t, channel=i_ch, illumination=i_illum,
                                                         tile=i_tile, angle=i_angle)
                             i += 1
-        bdv_writer.write_xml_file(ntimes=self.N_T)
+        bdv_writer.write_xml_file()
         bdv_writer.close()
 
     def write_virtual_by_substack(self):
@@ -235,7 +241,7 @@ class TestReadWriteVirtual(unittest.TestCase):
                                        ntiles=self.N_TILES,
                                        nangles=self.N_ANGLES,
                                        subsamp=((1, 1, 1), (2, 4, 4)),
-                                       blockdim=((4, 16, 16), ))
+                                       blockdim=((4, 16, 16), (4, 16, 16)))
         # Initialize virtual stacks
         for t in range(self.N_T):
             for i_ch in range(self.N_CH):
@@ -260,7 +266,7 @@ class TestReadWriteVirtual(unittest.TestCase):
                                                            time=t, channel=i_ch, illumination=i_illum,
                                                            tile=i_tile, angle=i_angle)
                             i += 1
-        bdv_writer.write_xml_file(ntimes=self.N_T)
+        bdv_writer.write_xml_file()
         bdv_writer.close()
 
     def compare_pixels(self, filename):

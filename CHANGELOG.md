@@ -1,3 +1,7 @@
+## v.1.0.7
+:exclamation: **API change**: number of time points `ntimes` is dropped from the 
+`BdvWriter.write_xml_file(...)` parameters, it is now calculated automatically.
+
 ## v.1.0.6
 :gem: Multiple XML files pointing to the same H5 data file are supported. 
 This allows having several versions of registration or other processing (defined in XML files). 
