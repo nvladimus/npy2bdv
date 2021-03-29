@@ -1,6 +1,10 @@
 ## v.1.0.7
-:exclamation: **API change**: number of time points `ntimes` is dropped from the 
-`BdvWriter.write_xml_file(...)` parameters, it is now calculated automatically.
+:exclamation: **API change**: a mandatory parameter for the number of time points is dropped (redundancy), and the function 
+name is shortened: `BdvWriter.write_xml(...)` instead of `BdvWriter.write_xml(ntimes=...)`.
+
+:gem: Lazy downsampling and compression is added: `BdvWriter.create_pyramids()`. 
+This allows full-speed writing of raw data (during acquisition runtime) followed by slower
+generation of downsampled and compressed image pyramids (when the time is less critical).
 
 ## v.1.0.6
 :gem: Multiple XML files pointing to the same H5 data file are supported. 

@@ -8,6 +8,7 @@ from xml.etree import ElementTree as ET
 import skimage.transform
 import shutil
 from pathlib import Path
+from tqdm import trange
 
 
 class BdvBase:
@@ -221,8 +222,8 @@ class BdvBase:
                 (None, 'gzip', 'lzf'), HDF5 compression method. Default is None for high-speed writing.
         :return: None
         """
-        assert len(self.subsamp) > 0, f"No full-res data is found, len(self.subsamp) = {len(self.subsamp)}"
-        assert len(self.subsamp) > 0, f"No full-res data is found, len(self.chunks) = {len(self.chunks)}"
+        assert len(self.subsamp) == 1, f"Image pyramids already exist, len(self.subsamp) = {len(self.subsamp)}"
+        assert len(self.chunks) == 1, f"Image pyramids already exist, len(self.chunks) = {len(self.chunks)}"
         assert self.nsetups > 0, f"Dataset has no views! self.nsetups = {self.nsetups}"
         assert self._file_object_h5 is not None, "H5 file object (self._file_object_h5) is None!"
         assert len(self.subsamp) == len(self.chunks), f"Length of subsampling tuple {len(subsamp)} must " \
@@ -237,12 +238,12 @@ class BdvBase:
         self.nlevels = len(self.subsamp)
 
         self._write_pyramids_header()
-        for time in range(self.ntimes):
-            for isetup in range(self.nsetups):
+        for time in trange(self.ntimes, desc='time points'):
+            for isetup in trange(self.nsetups, desc='views'):
                 for ilevel in range(1, self.nlevels):
                     full_res_group_name = self._fmt.format(time, isetup, 0)
                     if full_res_group_name in self._file_object_h5:
-                        raw_data = self._file_object_h5[full_res_group_name]['cells']
+                        raw_data = self._file_object_h5[full_res_group_name]['cells'][()].astype('uint16')
                         pyramid_group_name = self._fmt.format(time, isetup, ilevel)
                         grp = self._file_object_h5.create_group(pyramid_group_name)
                         subdata = self._subsample_stack(raw_data, self.subsamp[ilevel]).astype('int16')
@@ -541,7 +542,7 @@ class BdvWriter(BdvBase):
             plane_sub = skimage.transform.downscale_local_mean(plane, tuple(subsamp_level[1:])).astype(np.uint16)
         return plane_sub
 
-    def write_xml_file(self, camera_name="default",  microscope_name="default",
+    def write_xml(self, camera_name="default",  microscope_name="default",
                        microscope_version="0.0", user_name="user"):
         """
         Write XML header file for the HDF5 file.

@@ -62,7 +62,7 @@ class TestReadWrite(unittest.TestCase):
                                                    voxel_size_xyz=(1, 1, 4))
                             i += 1
         bdv_writer.create_pyramids(subsamp=self.subsamp[1:], blockdim=self.blockdim[1:])
-        bdv_writer.write_xml_file()
+        bdv_writer.write_xml()
         bdv_writer.append_affine(self.affine, 'test affine transform', *self.probe_t_ch_ill_tile_angle)
         bdv_writer.close()
 
@@ -230,7 +230,7 @@ class TestReadWriteVirtual(unittest.TestCase):
                                                         time=t, channel=i_ch, illumination=i_illum,
                                                         tile=i_tile, angle=i_angle)
                             i += 1
-        bdv_writer.write_xml_file()
+        bdv_writer.write_xml()
         bdv_writer.close()
 
     def write_virtual_by_substack(self):
@@ -266,7 +266,7 @@ class TestReadWriteVirtual(unittest.TestCase):
                                                            time=t, channel=i_ch, illumination=i_illum,
                                                            tile=i_tile, angle=i_angle)
                             i += 1
-        bdv_writer.write_xml_file()
+        bdv_writer.write_xml()
         bdv_writer.close()
 
     def compare_pixels(self, filename):
