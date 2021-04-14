@@ -1,9 +1,9 @@
 ## v.1.0.7
 :exclamation: **API change**: a mandatory parameter for the number of time points is dropped (redundancy), and the function 
-name is shortened: `BdvWriter.write_xml(...)` instead of `BdvWriter.write_xml(ntimes=...)`.
+name is shortened: `BdvWriter.write_xml(...)` instead of `BdvWriter.write_xml_file(ntimes=...)`.
 
 :gem: Lazy downsampling and compression is added: `BdvWriter.create_pyramids()`. 
-This allows full-speed writing of raw data (during acquisition runtime) followed by slower
+This allows high-speed writing of raw data during acquisition runtime, followed by slower
 generation of downsampled and compressed image pyramids (when the time is less critical).
 
 ## v.1.0.6
