@@ -12,7 +12,7 @@ from tqdm import trange
 
 
 class BdvBase:
-    __version__ = "2021.03"
+    __version__ = "2022.08"
 
     def __init__(self, filename):
         """
@@ -148,10 +148,7 @@ class BdvBase:
         node.insert(0, vt)
         vt.set('type', 'affine')
         ET.SubElement(vt, 'Name').text = name_affine
-        n_prec = 6
-        mx_string = np.array2string(m_affine.flatten(), separator=' ',
-                                    precision=n_prec, floatmode='fixed',
-                                    max_line_width=(n_prec + 6) * 4)
+        mx_string = np.array2string(m_affine.flatten(), formatter={'float':lambda x: "%.6f" % x})
         ET.SubElement(vt, 'affine').text = mx_string[1:-1].strip()
         self._xml_indent(self._root)
         tree = ET.ElementTree(self._root)
@@ -649,10 +646,7 @@ class BdvWriter(BdvBase):
                         vt = ET.SubElement(vreg, 'ViewTransform')
                         vt.set('type', 'affine')
                         ET.SubElement(vt, 'Name').text = self.affine_names[isetup]
-                        n_prec = 6
-                        mx_string = np.array2string(self.affine_matrices[isetup].flatten(), separator=' ',
-                                                    precision=n_prec, floatmode='fixed',
-                                                    max_line_width=(n_prec+6)*4)
+                        mx_string = np.array2string(self.affine_matrices[isetup].flatten(), formatter={'float':lambda x: "%.6f" % x})
                         ET.SubElement(vt, 'affine').text = mx_string[1:-1].strip()
 
                     # write registration transformation (calibration)
