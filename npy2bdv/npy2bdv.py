@@ -509,7 +509,7 @@ class BdvWriter(BdvBase):
                                    maxshape=(None, None, None), compression=self.compression, dtype='int16')
             else:  # a virtual stack initialized
                 grp.create_dataset('cells', chunks=self.chunks[ilevel],
-                                   shape=virtual_stack_dim // self.subsamp[ilevel],
+                                   shape=np.ceil(virtual_stack_dim / self.subsamp[ilevel]),
                                    compression=self.compression, dtype='int16')
         if m_affine is not None:
             self.affine_matrices[isetup] = m_affine.copy()
