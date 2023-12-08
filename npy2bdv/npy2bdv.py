@@ -821,3 +821,105 @@ class BdvEditor(BdvBase):
             tree = ET.ElementTree(self._root)
             shutil.copy(self.filename_xml, self.filename_xml + '~1') # backup the previous XML file.
             tree.write(self.filename_xml, xml_declaration=True, encoding='utf-8', method="xml")
+
+
+class BdvReader(BdvBase):
+
+    def __init__(self, filename):
+        """
+        Class for reading  existing H5/XML file pairs.
+
+        Parameters:
+        -----------
+            filename: string,
+                Path to either .h5 or .xml file. The other file of the pair must be present
+                in the same folder.
+        """
+        super().__init__(filename)
+        assert os.path.exists(self.filename_h5), f"Error: {self.filename_h5} file not found"
+        assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
+        self._file_object_h5 = h5py.File(self.filename_h5, 'r')
+        self._root = None
+        self.ntimes, self.nilluminations, self.nchannels, self.ntiles, self.nangles = self.get_attribute_count()
+        self.nsetups = self.nilluminations * self.nchannels * self.ntiles * self.nangles
+
+    def get_attribute_count(self):
+        """ Get the number of view attributes: time points, illuminations, channels, tiles, angles, using the XML file.
+        Returns:
+        --------
+        (ntimes, nilluminations, nchannels, ntiles, nangle)
+         """
+        with open(self.filename_xml, 'r') as file:
+            root = ET.parse(file).getroot()
+            element = root.find("./SequenceDescription/Timepoints[@type='range']")
+            nt = int(element.find('last').text) - int(element.find('first').text) + 1 if element else 0
+            ni = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='illumination']/Illumination"))
+            nch = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='channel']/Channel"))
+            ntiles = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='tile']/Tile"))
+            nang = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='angle']/Angle"))
+        return nt, ni, nch, ntiles, nang
+
+    def read_view(self, time=0, illumination=0, channel=0, tile=0, angle=0, ilevel=0,z=None):
+        """Read a view (stack) specified by its time, attributes, and downsampling level into numpy array (uint16).
+        Todo: implement detection of missing views using XML file, return None.
+
+        Parameters:
+        -----------
+            time: int
+                Index of time point (default 0).
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, >= 0.
+            ilevel: int
+                Level of subsampling, if available (default 0, no subsampling)
+            z: int
+                Index of z plane (default None, read the whole stack)
+
+        Returns:
+        --------
+            dataset: numpy array (dim=3, dtype=uint16)"""
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        group_name = self._fmt.format(time, isetup, ilevel)
+        if self._file_object_h5 and z is None:
+            dataset = self._file_object_h5[group_name]["cells"][()].astype('uint16')
+            return dataset
+        elif self._file_object_h5 and z>=0:
+            dataset = self._file_object_h5[group_name]["cells"][z,...].astype('uint16')
+            return dataset
+        else:
+            raise ValueError('File object is None')
+
+    def get_view_property(self, key, illumination=0, channel=0, tile=0, angle=0) -> tuple:
+        """"Get property of a vew setup from XML file. No time information required, since the setups are fixed.
+        Tuples are returned in (x, y, z) order, as in the XML file.
+        Parameters:
+        -----------
+            key: str
+                Name of the property: 'voxel_size' | 'view_shape'
+            illumination: int
+            channel: int
+            tile: int
+            angle: int
+                Indices of the view attributes, >= 0.
+        Returns:
+        --------
+            Value of the property, a tuple.
+        """
+        accepted_keys = ['voxel_size', 'view_shape']
+        assert key in accepted_keys, f"Key {key} not recognized, must be one of: {accepted_keys}."
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        self._get_xml_root()
+        if key == 'voxel_size':
+            path = "./SequenceDescription/ViewSetups/ViewSetup/voxelSize/size"
+            type_caster = float
+        elif key == 'view_shape':
+            path = "./SequenceDescription/ViewSetups/ViewSetup/size"
+            type_caster = int
+        props_list = self._root.findall(path)
+        # Todo: possible bug here, if the views are not in setupID order.
+        assert 0 <= isetup < len(props_list), f"Setup index {isetup} out of range 0..{len(props_list)-1}"
+        value = tuple([type_caster(val) for val in props_list[isetup].text.split()])
+        return value
+
