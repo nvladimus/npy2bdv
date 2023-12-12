@@ -1,3 +1,10 @@
+## v.1.0.9
+:bug: *Bugfix*: `BdvWriter.append_view()` now works correctly when downsampling odd-sized datasets, e.g. (31, 299, 301) (PR #15 by @pr4deepr)
+
+:gem: `BdvEditor` can now open datasets in read-only mode, e.g. `BdvEditor('file.h5', mode='r')` (PR #15 by @pr4deepr)
+
+:gem: `BdvEditor.read_view(z=...)` now supports reading a single plane from a view (PR #15 by @pr4deepr)
+
 ## v.1.0.7
 :exclamation: **API change**: a mandatory parameter for the number of time points is dropped (redundancy), and the function 
 name is shortened: `BdvWriter.write_xml(...)` instead of `BdvWriter.write_xml_file(ntimes=...)`.
