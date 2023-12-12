@@ -675,7 +675,7 @@ class BdvWriter(BdvBase):
 
 class BdvEditor(BdvBase):
 
-    def __init__(self, filename):
+    def __init__(self, filename, mode='r+'):
         """
         Class for reading and editing existing H5/XML file pairs.
         Warning: Editing of H5/XML files occurs in-place, and there is currently no undo option. Use at your own risk.
@@ -686,12 +686,14 @@ class BdvEditor(BdvBase):
             filename: string,
                 Path to either .h5 or .xml file. The other file of the pair must be present
                 in the same folder.
+            mode: string, optional, default 'r+' (read/write)
         """
         super().__init__(filename)
         assert os.path.exists(self.filename_h5), f"Error: {self.filename_h5} file not found"
         assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
-        self._file_object_h5 = h5py.File(self.filename_h5, 'r+')
+        self._file_object_h5 = h5py.File(self.filename_h5, mode=mode)
         self._root = None
+        self.mode = mode
         self.ntimes, self.nilluminations, self.nchannels, self.ntiles, self.nangles = self.get_attribute_count()
         self.nsetups = self.nilluminations * self.nchannels * self.ntiles * self.nangles
 
@@ -711,8 +713,8 @@ class BdvEditor(BdvBase):
             nang = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='angle']/Angle"))
         return nt, ni, nch, ntiles, nang
 
-    def read_view(self, time=0, illumination=0, channel=0, tile=0, angle=0, ilevel=0):
-        """Read a view (stack) specified by its time, attributes, and downsampling level into numpy array (uint16).
+    def read_view(self, time=0, illumination=0, channel=0, tile=0, angle=0, ilevel=0, z=None):
+        """Read a view (a 3D stack or a single plane) specified by its time, attributes, and downsampling level into a numpy array (uint16).
         Todo: implement detection of missing views using XML file, return None.
 
         Parameters:
@@ -729,11 +731,16 @@ class BdvEditor(BdvBase):
 
         Returns:
         --------
-            dataset: numpy array (dim=3, dtype=uint16)"""
+            dataset: numpy array (dim=3 or 2, dtype=uint16)"""
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         group_name = self._fmt.format(time, isetup, ilevel)
         if self._file_object_h5:
-            dataset = self._file_object_h5[group_name]["cells"][()].astype('uint16')
+            if z is None:
+                dataset = self._file_object_h5[group_name]["cells"][()].astype('uint16')
+            elif z >= 0:
+                dataset = self._file_object_h5[group_name]["cells"][z, ...].astype('uint16')
+            else:
+                raise ValueError('z must be >= 0')
             return dataset
         else:
             raise ValueError('File object is None')
@@ -754,7 +761,9 @@ class BdvEditor(BdvBase):
                 Level of subsampling, if available (default 0, no subsampling)
         """
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
-        if self._file_object_h5:
+        if self.mode == 'r':
+            raise ValueError('File is open in read-only mode')
+        elif self._file_object_h5:
             for time in range(self.ntimes):
                 group_name = self._fmt.format(time, isetup, ilevel)
                 view_dataset = self._file_object_h5[group_name]["cells"]
@@ -768,17 +777,17 @@ class BdvEditor(BdvBase):
                 view_dataset.resize(view_arr.shape)
                 view_dataset[:] = view_arr # Always use braces here! A common mistake to omit them.
                 self._file_object_h5.flush()
+            # Edit the XML file as well.
+            with open(self.filename_xml, self.mode) as file:
+                self._get_xml_root()
+                for elem in self._root.findall("./SequenceDescription/ViewSetups/ViewSetup"):
+                    elem_id = elem.find("id")
+                    if int(elem_id.text) == isetup:
+                        nz, ny, nx = tuple(view_arr.shape)
+                        elem_size = elem.find("size")
+                        elem_size.text = '{} {} {}'.format(nx, ny, nz)
         else:
             raise FileNotFoundError(self.filename_h5)
-        # Edit the XML file as well.
-        with open(self.filename_xml, 'r+') as file:
-            self._get_xml_root()
-            for elem in self._root.findall("./SequenceDescription/ViewSetups/ViewSetup"):
-                elem_id = elem.find("id")
-                if int(elem_id.text) == isetup:
-                    nz, ny, nx = tuple(view_arr.shape)
-                    elem_size = elem.find("size")
-                    elem_size.text = '{} {} {}'.format(nx, ny, nz)
 
     def get_view_property(self, key, illumination=0, channel=0, tile=0, angle=0) -> tuple:
         """"Get property of a vew setup from XML file. No time information required, since the setups are fixed.
@@ -815,6 +824,7 @@ class BdvEditor(BdvBase):
     def finalize(self):
         """Finalize the H5 and XML files: save changes and close them."""
         if self._file_object_h5 is not None:
+            self._file_object_h5.flush()
             self._file_object_h5.close()
         if self._root is not None:
             self._xml_indent(self._root)
@@ -822,104 +832,4 @@ class BdvEditor(BdvBase):
             shutil.copy(self.filename_xml, self.filename_xml + '~1') # backup the previous XML file.
             tree.write(self.filename_xml, xml_declaration=True, encoding='utf-8', method="xml")
 
-
-class BdvReader(BdvBase):
-
-    def __init__(self, filename):
-        """
-        Class for reading  existing H5/XML file pairs.
-
-        Parameters:
-        -----------
-            filename: string,
-                Path to either .h5 or .xml file. The other file of the pair must be present
-                in the same folder.
-        """
-        super().__init__(filename)
-        assert os.path.exists(self.filename_h5), f"Error: {self.filename_h5} file not found"
-        assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
-        self._file_object_h5 = h5py.File(self.filename_h5, 'r')
-        self._root = None
-        self.ntimes, self.nilluminations, self.nchannels, self.ntiles, self.nangles = self.get_attribute_count()
-        self.nsetups = self.nilluminations * self.nchannels * self.ntiles * self.nangles
-
-    def get_attribute_count(self):
-        """ Get the number of view attributes: time points, illuminations, channels, tiles, angles, using the XML file.
-        Returns:
-        --------
-        (ntimes, nilluminations, nchannels, ntiles, nangle)
-         """
-        with open(self.filename_xml, 'r') as file:
-            root = ET.parse(file).getroot()
-            element = root.find("./SequenceDescription/Timepoints[@type='range']")
-            nt = int(element.find('last').text) - int(element.find('first').text) + 1 if element else 0
-            ni = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='illumination']/Illumination"))
-            nch = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='channel']/Channel"))
-            ntiles = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='tile']/Tile"))
-            nang = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='angle']/Angle"))
-        return nt, ni, nch, ntiles, nang
-
-    def read_view(self, time=0, illumination=0, channel=0, tile=0, angle=0, ilevel=0,z=None):
-        """Read a view (stack) specified by its time, attributes, and downsampling level into numpy array (uint16).
-        Todo: implement detection of missing views using XML file, return None.
-
-        Parameters:
-        -----------
-            time: int
-                Index of time point (default 0).
-            illumination: int
-            channel: int
-            tile: int
-            angle: int
-                Indices of the view attributes, >= 0.
-            ilevel: int
-                Level of subsampling, if available (default 0, no subsampling)
-            z: int
-                Index of z plane (default None, read the whole stack)
-
-        Returns:
-        --------
-            dataset: numpy array (dim=3, dtype=uint16)"""
-        isetup = self._determine_setup_id(illumination, channel, tile, angle)
-        group_name = self._fmt.format(time, isetup, ilevel)
-        if self._file_object_h5 and z is None:
-            dataset = self._file_object_h5[group_name]["cells"][()].astype('uint16')
-            return dataset
-        elif self._file_object_h5 and z>=0:
-            dataset = self._file_object_h5[group_name]["cells"][z,...].astype('uint16')
-            return dataset
-        else:
-            raise ValueError('File object is None')
-
-    def get_view_property(self, key, illumination=0, channel=0, tile=0, angle=0) -> tuple:
-        """"Get property of a vew setup from XML file. No time information required, since the setups are fixed.
-        Tuples are returned in (x, y, z) order, as in the XML file.
-        Parameters:
-        -----------
-            key: str
-                Name of the property: 'voxel_size' | 'view_shape'
-            illumination: int
-            channel: int
-            tile: int
-            angle: int
-                Indices of the view attributes, >= 0.
-        Returns:
-        --------
-            Value of the property, a tuple.
-        """
-        accepted_keys = ['voxel_size', 'view_shape']
-        assert key in accepted_keys, f"Key {key} not recognized, must be one of: {accepted_keys}."
-        isetup = self._determine_setup_id(illumination, channel, tile, angle)
-        self._get_xml_root()
-        if key == 'voxel_size':
-            path = "./SequenceDescription/ViewSetups/ViewSetup/voxelSize/size"
-            type_caster = float
-        elif key == 'view_shape':
-            path = "./SequenceDescription/ViewSetups/ViewSetup/size"
-            type_caster = int
-        props_list = self._root.findall(path)
-        # Todo: possible bug here, if the views are not in setupID order.
-        assert 0 <= isetup < len(props_list), f"Setup index {isetup} out of range 0..{len(props_list)-1}"
-        value = tuple([type_caster(val) for val in props_list[isetup].text.split()])
-        return value
 

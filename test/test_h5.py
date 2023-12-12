@@ -12,7 +12,7 @@ FILE_EXTENSION = 'h5' # set either 'h5' or 'xml'. This should be parsed correctl
 np.random.seed(1)
 
 class TestReadWrite(unittest.TestCase):
-    """Write a dataset with multiples views, and load it back. Compare the loaded dataset vs expetations.
+    """Write a dataset with multiples views, and load it back. Compare the loaded dataset vs expectations.
     """
     def setUp(self) -> None:
         """"This will automatically call for EVERY single test we run."""
@@ -20,6 +20,7 @@ class TestReadWrite(unittest.TestCase):
         if not os.path.exists(self.test_dir):
             os.mkdir(self.test_dir)
         self.fname = self.test_dir + "test_real_stack." + FILE_EXTENSION
+        self.fname1 = self.test_dir + "test_real_subsampling_dims_odd." + FILE_EXTENSION
         self.NZ, self.NY, self.NX = 16, 64, 64
         self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 2, 3, 2
         self.N_VIEWS = self.N_T*self.N_CH*self.N_ILL*self.N_TILES*self.N_ANGLES
@@ -45,8 +46,6 @@ class TestReadWrite(unittest.TestCase):
                                        nilluminations=self.N_ILL,
                                        ntiles=self.N_TILES,
                                        nangles=self.N_ANGLES,
-                                       #subsamp=self.subsamp,
-                                       #blockdim=self.blockdim,
                                        )
         i = 0
         for t in range(self.N_T):
@@ -173,6 +172,14 @@ class TestReadWrite(unittest.TestCase):
                                             "Cropped view is not equal the substack of original view")
         editor.finalize()
 
+    def test_write_odd_dims(self):
+        img = np.zeros((33, 301, 299))
+        bdv_writer = npy2bdv.BdvWriter(self.fname1, nchannels=1, subsamp=((1, 2, 2), (1, 8, 8), (1, 16, 16)),
+                                       blockdim=((8, 16, 16), (8, 16, 16), (8, 16, 16)), overwrite=True)
+        bdv_writer.append_view(stack=img, channel=0)
+        bdv_writer.write_xml()
+        bdv_writer.close()
+
     def tearDown(self) -> None:
         """"Tidies up after EACH test method has been run."""
         if os.path.exists(self.test_dir):
@@ -188,6 +195,7 @@ class TestReadWriteVirtual(unittest.TestCase):
             os.mkdir(self.test_dir)
         self.fname0 = self.test_dir + "test_virtual_by_plane." + FILE_EXTENSION
         self.fname1 = self.test_dir + "test_virtual_by_substack." + FILE_EXTENSION
+        self.fname2 = self.test_dir + "test_virtual_subsampling_dims_odd." + FILE_EXTENSION
 
         self.NZ, self.NY, self.NX = 8, 256, 256
         self.N_T, self.N_CH, self.N_ILL, self.N_TILES, self.N_ANGLES = 2, 2, 2, 3, 2
@@ -230,6 +238,19 @@ class TestReadWriteVirtual(unittest.TestCase):
                                                         time=t, channel=i_ch, illumination=i_illum,
                                                         tile=i_tile, angle=i_angle)
                             i += 1
+        bdv_writer.write_xml()
+        bdv_writer.close()
+
+    def test_write_virtual_odd_dims_by_plane(self):
+        img = np.zeros((33, 301, 299))
+        nz, ny, nx = img.shape
+
+        bdv_writer = npy2bdv.BdvWriter(self.fname2, nchannels=1, subsamp=((1, 2, 2), (1, 8, 8), (1, 16, 16)),
+                                       blockdim=((8, 16, 16), (8, 16, 16), (8, 16, 16)),
+                                       compression='gzip', overwrite=True)
+        bdv_writer.append_view(stack=None, virtual_stack_dim=(nz, ny, nx), channel=0)
+        for iz in range(nz):
+            bdv_writer.append_plane(plane=img[iz, :, :], z=iz)
         bdv_writer.write_xml()
         bdv_writer.close()
 
