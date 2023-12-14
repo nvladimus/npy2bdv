@@ -83,7 +83,28 @@ class TestReadWrite(unittest.TestCase):
                             self.assertTrue((view == self.stacks[i]).all(), "Written stack differs from the loaded one.")
                             i += 1
         editor.finalize()
-
+        
+    def test_read_z_plane(self):
+        """Check if the reader imports each z slice correctly"""
+        assert os.path.exists(self.fname), f'File {self.fname} not found.'
+        editor = npy2bdv.BdvEditor(self.fname)
+        i = 0
+        for t in range(self.N_T):
+            for i_ch in range(self.N_CH):
+                for i_illum in range(self.N_ILL):
+                    for i_tile in range(self.N_TILES):
+                        for i_angle in range(self.N_ANGLES):
+                            for z_plane in range(self.NZ):
+                                view = editor.read_view(time=t,
+                                                        channel=i_ch,
+                                                        illumination=i_illum,
+                                                        tile=i_tile,
+                                                        angle=i_angle,
+                                                        z=z_plane)
+                                self.assertTrue((view == self.stacks[i][z_plane]).all(), "Written stack differs from the loaded one.")
+                            i += 1
+        editor.finalize()
+        
     def test_view_properties(self):
         """"BdvReader(): does the meta-info in XML file have expected values?"""
         assert os.path.exists(self.fname), f'File {self.fname} not found.'
