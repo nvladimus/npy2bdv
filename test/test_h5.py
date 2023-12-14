@@ -87,7 +87,7 @@ class TestReadWrite(unittest.TestCase):
     def test_read_z_plane(self):
         """Check if the reader imports each z slice correctly"""
         assert os.path.exists(self.fname), f'File {self.fname} not found.'
-        editor = npy2bdv.BdvEditor(self.fname)
+        editor = npy2bdv.BdvEditor(self.fname,mode='r')
         i = 0
         for t in range(self.N_T):
             for i_ch in range(self.N_CH):
