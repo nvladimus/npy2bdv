@@ -42,7 +42,7 @@ of Hamamatsu Orca Flash4, e.g. 840 MB/s (2048x2048 px at 100 Hz).
 
  ## Acknowledgements
  This code was inspired by [Talley Lambert's](https://github.com/tlambert03/imarispy) code 
- and improved by generous input from Adam Glaser, [VolkerH](https://github.com/VolkerH), Doug Shepherd,  
+ and improved by generous input from Adam Glaser, [VolkerH](https://github.com/VolkerH), Doug Shepherd, 
  [Peter H](https://github.com/abred), and [Pradeep Rajasekhar](https://github.com/pr4deepr).
  
  To report issues or bugs please use the [issues](https://github.com/nvladimus/npy2bdv/issues) tool.
