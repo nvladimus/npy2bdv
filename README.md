@@ -51,3 +51,8 @@ of Hamamatsu Orca Flash4, e.g. 840 MB/s (2048x2048 px at 100 Hz).
  If you find this library useful, please cite it. Thanks!
  
  [![DOI](https://zenodo.org/badge/203410946.svg)](https://zenodo.org/badge/latestdoi/203410946)
+
+## Support
+If you find this library useful, send me some love :blush:
+[![PayPal donate button](/assets/donate-paypal-button-blue.svg)](https://www.paypal.com/paypalme/NikitaVladimirov)
+It will give me some dopamine and motivation to keep improving it :heart: 
