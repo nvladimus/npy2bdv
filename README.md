@@ -54,5 +54,7 @@ of Hamamatsu Orca Flash4, e.g. 840 MB/s (2048x2048 px at 100 Hz).
 
 ## Support
 If you find this library useful, send me some love :blush:
-[![PayPal donate button](/assets/donate-paypal-button-blue.svg)](https://www.paypal.com/paypalme/NikitaVladimirov)
+
+<a href="https://www.paypal.com/paypalme/NikitaVladimirov"><img src="/assets/donate-paypal-button-blue.svg" height="72"></a>
+
 It will give me some dopamine and motivation to keep improving it :heart: 
