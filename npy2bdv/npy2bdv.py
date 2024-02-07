@@ -441,9 +441,13 @@ class BdvWriter(BdvBase):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self._file_object_h5[group_name]["cells"]
             subdata = self._subsample_stack(substack, self.subsamp[ilevel]).astype('int16')
-            dataset[z_start : z_start + substack.shape[0],
-                    y_start : y_start + substack.shape[1],
-                    x_start : x_start + substack.shape[2]] = subdata
+            print(dataset.shape, subdata.shape, self.subsamp[ilevel])
+            sub_z_start = int(z_start/self.subsamp[ilevel][0])
+            sub_y_start = int(y_start/self.subsamp[ilevel][1])
+            sub_x_start = int(x_start/self.subsamp[ilevel][2])
+            dataset[sub_z_start : sub_z_start + subdata.shape[0],
+                    sub_y_start : sub_y_start + subdata.shape[1],
+                    sub_x_start : sub_x_start + subdata.shape[2]] = subdata
 
     def append_view(self, stack, virtual_stack_dim=None,
                     time=0, illumination=0, channel=0, tile=0, angle=0,

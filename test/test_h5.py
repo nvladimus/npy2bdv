@@ -295,6 +295,7 @@ class TestReadWriteVirtual(unittest.TestCase):
                                                    time=t, channel=i_ch, illumination=i_illum,
                                                    tile=i_tile, angle=i_angle)
         # Populate the virtual stacks
+        y_offset = 16
         i = 0
         for t in range(self.N_T):
             for i_ch in range(self.N_CH):
@@ -303,8 +304,14 @@ class TestReadWriteVirtual(unittest.TestCase):
                         for i_angle in range(self.N_ANGLES):
                             for isub in range(self.N_SUBSTACKS):
                                 zslice = slice(isub*(self.NZ//self.N_SUBSTACKS), (isub+1)*(self.NZ//self.N_SUBSTACKS))
-                                bdv_writer.append_substack(substack=self.stacks[i][zslice, :, :],
-                                                           z_start=zslice.start,
+                                # first half-stack
+                                bdv_writer.append_substack(substack=self.stacks[i][zslice, :y_offset, :],
+                                                           z_start=zslice.start, y_start=0, x_start=0,
+                                                           time=t, channel=i_ch, illumination=i_illum,
+                                                           tile=i_tile, angle=i_angle)
+                                # second half-stack
+                                bdv_writer.append_substack(substack=self.stacks[i][zslice, y_offset:, :],
+                                                           z_start=zslice.start, y_start=y_offset, x_start=0,
                                                            time=t, channel=i_ch, illumination=i_illum,
                                                            tile=i_tile, angle=i_angle)
                             i += 1
