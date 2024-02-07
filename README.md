@@ -48,7 +48,7 @@ of Hamamatsu Orca Flash4, e.g. 840 MB/s (2048x2048 px at 100 Hz).
  To report issues or bugs please use the [issues](https://github.com/nvladimus/npy2bdv/issues) tool.
  
  ## Citation
- If you find this library useful, please cite it. Thanks!
+ You can cite it like so
  
  [![DOI](https://zenodo.org/badge/203410946.svg)](https://zenodo.org/badge/latestdoi/203410946)
 
