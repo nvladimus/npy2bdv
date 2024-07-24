@@ -35,10 +35,7 @@ API [documentation](https://nvladimus.github.io/npy2bdv/).
  See [Recent changes](CHANGELOG.md)
  
  ## Writing speed
-Writing speeds up to 2300 MB/s can be achieved on a PC with SSD drive. 
-The speed of writing for long time series (>100 stacks) is typically about 700-900 MB/s. 
-This is in the range of full-speed camera acquisition 
-of Hamamatsu Orca Flash4, e.g. 840 MB/s (2048x2048 px at 100 Hz).
+ Currently speeds betewen 150 - 320 MB/s were achieved with confidence. Speeds of up to 2300 MB/s reported in earlier versions are likely due to bugs in testing methods in notebook [`examples_h5writing.ipynb`](/docs/examples/examples_h5writing.ipynb). More tesing is underway.
 
  ## Acknowledgements
  This code was inspired by [Talley Lambert's](https://github.com/tlambert03/imarispy) code 

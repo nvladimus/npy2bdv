@@ -1,3 +1,6 @@
+## July 2024
+:bug: Speeds reported earlier in [`examples_h5writing.ipynb`](/docs/examples/examples_h5writing.ipynb) up to 2300 MB/s are likely due to bugs in testing. Currently speeds of 200 MB/s are more realistic.
+
 ## v.1.0.9
 :bug: *Bugfix*: `BdvWriter.append_view()` now works correctly when downsampling odd-sized datasets, e.g. (31, 299, 301) (PR #15 by @pr4deepr)
 
