@@ -2,6 +2,7 @@
 # Author: Nikita Vladimirov
 # License: GPL-3.0
 import os
+import importlib.metadata
 import h5py
 import numpy as np
 from xml.etree import ElementTree as ET
@@ -12,7 +13,10 @@ from tqdm import trange
 
 
 class BdvBase:
-    __version__ = "2022.08"
+    try:
+        __version__ = importlib.metadata.version('npy2bdv')
+    except importlib.metadata.PackageNotFoundError:  # running from source without pip install
+        __version__ = 'unknown'
 
     def __init__(self, filename):
         """
