@@ -667,7 +667,7 @@ class BdvWriter(BdvBase):
 
     def _update_setup_id_present(self, isetup, itime):
         """Update the lookup table (list of lists) for missing setups"""
-        if len(self.setup_id_present) <= itime:
+        while len(self.setup_id_present) <= itime:
             self.setup_id_present.append([False] * self.nsetups)
         self.setup_id_present[itime][isetup] = True
 

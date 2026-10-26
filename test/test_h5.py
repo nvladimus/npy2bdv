@@ -201,6 +201,24 @@ class TestReadWrite(unittest.TestCase):
         bdv_writer.write_xml()
         bdv_writer.close()
 
+    def test_write_sparse_timepoints(self):
+        """Time points can be skipped or written out of order"""
+        fname = self.test_dir + "test_sparse_timepoints." + FILE_EXTENSION
+        stack = np.arange(4 * 8 * 8, dtype=np.uint16).reshape((4, 8, 8))
+        bdv_writer = npy2bdv.BdvWriter(fname, nchannels=1, overwrite=True)
+        for t in (2, 0):
+            bdv_writer.append_view(stack + t, time=t)
+        bdv_writer.write_xml()
+        bdv_writer.close()
+
+        editor = npy2bdv.BdvEditor(fname)
+        self.assertEqual(editor.ntimes, 3)
+        for t in (2, 0):
+            self.assertTrue(np.array_equal(editor.read_view(time=t), stack + t))
+        editor.finalize()
+        with open(self.test_dir + "test_sparse_timepoints.xml") as f:
+            self.assertIn('<MissingView timepoint="1" setup="0" />', f.read())
+
     def tearDown(self) -> None:
         """"Tidies up after EACH test method has been run."""
         if os.path.exists(self.test_dir):
