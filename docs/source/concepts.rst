@@ -46,9 +46,9 @@ Rules worth knowing
 * **Missing views are fine.** Views never written are listed as *missing* in the XML file, and
   BigDataViewer/BigStitcher skips them. See :ref:`missing-views`.
 * **Writing a view twice replaces it.**
-* **Setups can differ** in shape, voxel size and exposure. Within one setup, keep the shape the
-  same at all time points: the XML file stores one shape per setup. The pixel type and the
-  resolution levels are shared by all views in a file.
+* **Setups can differ** in shape, voxel size and exposure. Within one setup, the shape must be the
+  same at all time points, because the XML file stores one shape per setup: ``append_view`` raises
+  ``ValueError`` otherwise. The pixel type and the resolution levels are shared by all views in a file.
 * **Arrays are (z, y, x)**, while BigDataViewer and the XML file use (x, y, z). Parameters
   named ``..._xyz`` follow the XML order.
 

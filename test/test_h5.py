@@ -3,6 +3,7 @@ import npy2bdv
 import os
 import shutil
 import unittest
+import warnings
 import numpy as np
 import skimage.transform
 from .sample import generate_test_image
@@ -478,6 +479,71 @@ class TestDtypes(unittest.TestCase):
     def test_unsupported_dtype(self):
         with self.assertRaises(AssertionError):
             npy2bdv.BdvWriter(self.test_dir + "bad.h5", dtype='uint32')
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+
+class TestInputChecks(unittest.TestCase):
+    """Warnings on lossy casts, and errors on inconsistent shapes within a setup."""
+    def setUp(self) -> None:
+        self.test_dir = "./test/test_files_checks/"
+        os.makedirs(self.test_dir, exist_ok=True)
+
+    def writer(self, name, **kwargs):
+        return npy2bdv.BdvWriter(self.test_dir + name + ".h5", overwrite=True, **kwargs)
+
+    def test_lossy_cast_warns(self):
+        cases = [('uint16', np.full((2, 4, 4), 70000, dtype=np.int64)),     # out of range
+                 ('uint16', np.full((2, 4, 4), 1.5)),                         # fractions
+                 ('uint8', np.full((2, 4, 4), 300, dtype=np.uint16)),
+                 ('float32', np.full((2, 4, 4), 2**24 + 1, dtype=np.int64))]  # precision
+        for dtype, stack in cases:
+            with self.subTest(dtype=dtype, input=stack.dtype.name):
+                writer = self.writer("lossy", dtype=dtype)
+                with self.assertWarns(UserWarning):
+                    writer.append_view(stack)
+                writer.close()
+
+    def test_lossless_cast_is_silent(self):
+        cases = [('uint16', np.full((2, 4, 4), 65535, dtype=np.uint16)),
+                 ('uint16', np.full((2, 4, 4), 1000, dtype=np.int64)),   # e.g. np.random.randint default
+                 ('uint16', np.full((2, 4, 4), 1000.0)),
+                 ('uint8', np.full((2, 4, 4), 255, dtype=np.uint16)),
+                 ('float32', np.full((2, 4, 4), np.nan))]
+        for dtype, stack in cases:
+            with self.subTest(dtype=dtype, input=stack.dtype.name):
+                writer = self.writer("lossless", dtype=dtype)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("error")
+                    writer.append_view(stack)
+                writer.close()
+
+    def test_lossy_plane_and_substack_warn(self):
+        writer = self.writer("lossy_virtual", dtype='uint8')
+        writer.append_view(stack=None, virtual_stack_dim=(4, 8, 8))
+        with self.assertWarns(UserWarning):
+            writer.append_plane(np.full((8, 8), 256, dtype=np.uint16), z=0)
+        with self.assertWarns(UserWarning):
+            writer.append_substack(np.full((2, 8, 8), -1, dtype=np.int16), z_start=1)
+        writer.close()
+
+    def test_shape_change_within_setup_raises(self):
+        writer = self.writer("shapes", nchannels=2)
+        writer.append_view(np.zeros((4, 8, 8), np.uint16), time=0, channel=0)
+        writer.append_view(np.zeros((6, 8, 8), np.uint16), time=0, channel=1)   # other setup: fine
+        writer.append_view(np.zeros((5, 8, 8), np.uint16), time=0, channel=0)   # rewrite same view: fine
+        with self.assertRaises(ValueError):
+            writer.append_view(np.zeros((4, 8, 8), np.uint16), time=1, channel=0)
+        with self.assertRaises(ValueError):
+            writer.append_view(stack=None, virtual_stack_dim=(4, 8, 8), time=1, channel=0)
+        writer.append_view(np.zeros((5, 8, 8), np.uint16), time=1, channel=0)   # same shape: fine
+        writer.write_xml()
+        writer.close()
+        editor = npy2bdv.BdvEditor(self.test_dir + "shapes.xml", mode='r')
+        self.assertEqual(editor.get_view_property('view_shape', channel=0), (8, 8, 5))
+        self.assertEqual(editor.ntimes, 2)
+        editor.finalize()
 
     def tearDown(self) -> None:
         shutil.rmtree(self.test_dir, ignore_errors=True)

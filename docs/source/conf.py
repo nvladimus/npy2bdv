@@ -37,5 +37,6 @@ exclude_patterns = []
 
 html_theme = "furo"
 html_title = f"npy2bdv {release}"
+html_extra_path = ["_extra"]  # npy2bdv.html: redirect from the old pdoc API page
 copybutton_prompt_text = r">>> |\.\.\. |\$ "
 copybutton_prompt_is_regexp = True

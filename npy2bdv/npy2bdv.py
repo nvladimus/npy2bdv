@@ -8,6 +8,7 @@ import numpy as np
 from xml.etree import ElementTree as ET
 import skimage.transform
 import shutil
+import warnings
 from pathlib import Path
 from tqdm import trange
 
@@ -309,9 +310,9 @@ class BdvWriter(BdvBase):
     overwrite : bool
         If True, an existing file is replaced. If False (default), an existing file raises `FileExistsError`.
     dtype : {'uint16', 'uint8', 'float32'}
-        Pixel type of all views, default 'uint16'. Input arrays are cast to this type, so values outside
-        its range wrap around or are truncated. Types other than uint16 need BigDataViewer-core >= 10.4.6
-        (any Fiji updated since 2023).
+        Pixel type of all views, default 'uint16'. Input arrays are cast to this type. If that changes
+        values (out of range, or fractions lost), a `UserWarning` is issued. Types other than uint16 need
+        BigDataViewer-core >= 10.4.6 (any Fiji updated since 2023).
 
     Notes
     -----
@@ -460,6 +461,7 @@ class BdvWriter(BdvBase):
         assert self.virtual_stacks, "Appending planes requires initialization with virtual stack, " \
                                     "see append_view(stack=None,...)"
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        self._check_cast(plane)
         self._update_setup_id_present(isetup, time)
         assert plane.shape == self.stack_shapes[isetup][1:], f"Plane dimensions {plane.shape} do not match (y,x) size" \
                                                              f" of virtual stack {self.stack_shapes[isetup][1:]}."
@@ -501,6 +503,7 @@ class BdvWriter(BdvBase):
         assert self.virtual_stacks, "Appending substack requires initialization with virtual stack, " \
                                     "see append_view(stack=None,...)"
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        self._check_cast(substack)
         self._update_setup_id_present(isetup, time)
         assert z_start + substack.shape[0] <= self.stack_shapes[isetup][0], \
             f"Substack offset {z_start} + z-dim {substack.shape[0]} > virtual stack z-dim {self.stack_shapes[isetup][0]}."
@@ -547,7 +550,8 @@ class BdvWriter(BdvBase):
         Parameters
         ----------
         stack : numpy.ndarray or None
-            3d array in (z, y, x) order. It is cast to the writer's `dtype`.
+            3d array in (z, y, x) order. It is cast to the writer's `dtype`, with a `UserWarning`
+            if that changes values.
             If None, an empty *virtual stack* of shape `virtual_stack_dim` is allocated, to be filled
             with `append_plane` or `append_substack` (for data larger than RAM).
         virtual_stack_dim : tuple of int, optional
@@ -574,6 +578,12 @@ class BdvWriter(BdvBase):
         exposure_units : str
             Unit of the exposure time. Default 's'.
 
+        Raises
+        ------
+        ValueError
+            If the shape differs from the shape of the same setup at another time point:
+            the XML file stores one shape per setup.
+
         Examples
         --------
         >>> writer.append_view(stack, time=0, channel=1, voxel_size_xyz=(0.5, 0.5, 2), voxel_units='um')
@@ -581,16 +591,26 @@ class BdvWriter(BdvBase):
         
         assert len(calibration) == 3, "Calibration must be a tuple of 3 elements (x, y, z)."
         assert len(voxel_size_xyz) == 3, "Voxel size must be a tuple of 3 elements (x, y, z)."
-        if time > self.ntimes - 1:
-            self.ntimes = time + 1
-        isetup = self._determine_setup_id(illumination, channel, tile, angle)
-        self._update_setup_id_present(isetup, time)
         if stack is not None:
             assert len(stack.shape) == 3, "Stack should be a 3-dimensional numpy array (z,y,x)"
-            self.stack_shapes[isetup] = stack.shape
+            shape = tuple(stack.shape)
         else:
-            assert len(virtual_stack_dim) == 3, "Stack is virtual, so parameter virtual_stack_dim must be defined."
-            self.stack_shapes[isetup] = virtual_stack_dim
+            assert virtual_stack_dim is not None and len(virtual_stack_dim) == 3, \
+                "Stack is virtual, so parameter virtual_stack_dim must be defined."
+            shape = tuple(virtual_stack_dim)
+        isetup = self._determine_setup_id(illumination, channel, tile, angle)
+        # The XML file stores one shape per setup, so all time points of a setup must share it.
+        other_times = [t for t, present in enumerate(self.setup_id_present) if t != time and present[isetup]]
+        if other_times and tuple(self.stack_shapes[isetup]) != shape:
+            raise ValueError(f"View shape {shape} differs from shape {tuple(self.stack_shapes[isetup])} of the same "
+                             f"setup at time point {other_times[0]}. All time points of a setup must have one shape.")
+        if stack is not None:
+            self._check_cast(stack)
+        if time > self.ntimes - 1:
+            self.ntimes = time + 1
+        self._update_setup_id_present(isetup, time)
+        self.stack_shapes[isetup] = shape
+        if stack is None:
             self.virtual_stacks = True
 
         for ilevel in range(self.nlevels):
@@ -757,6 +777,17 @@ class BdvWriter(BdvBase):
         self._xml_indent(root)
         tree = ET.ElementTree(root)
         tree.write(self.filename_xml, xml_declaration=True, encoding='utf-8', method="xml")
+
+    def _check_cast(self, data):
+        """Warn if casting `data` to the writer's dtype changes its values (out of range, or fractions lost).
+        Safe casts, e.g. uint16 data into a uint16 writer, skip the value check and cost nothing."""
+        if np.can_cast(data.dtype, self.dtype, casting='safe'):
+            return
+        with np.errstate(invalid='ignore', over='ignore'):
+            unchanged = np.array_equal(data.astype(self.dtype), data, equal_nan=True)
+        if not unchanged:
+            warnings.warn(f"Values of {data.dtype} data change when cast to {self.dtype} (out of range or not "
+                          f"integer). Rescale the data, or create BdvWriter with a matching dtype.", stacklevel=3)
 
     def _update_setup_id_present(self, isetup, itime):
         """Update the lookup table (list of lists) for missing setups"""

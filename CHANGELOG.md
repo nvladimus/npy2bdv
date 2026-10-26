@@ -8,6 +8,13 @@ Fiji with BigDataViewer-core >= 10.4.6. `uint16` files are unchanged and still o
 :bug: *Bugfix*: pyramid levels of virtual stacks written by `append_substack()` are correct when substack edges
 do not align with subsampling factors (PR #20 by @aaronkanzer)
 
+:gem: `BdvWriter` warns (`UserWarning`) when casting input data to the file's pixel type changes values,
+e.g. float data with fractions into uint16, or values above 255 into uint8 (issue #10). Lossless casts are not checked
+and cost nothing.
+
+:exclamation: `BdvWriter.append_view()` raises `ValueError` if a setup gets a different shape at another time point,
+instead of writing an XML file with a wrong view size.
+
 :bug: *Bugfix*: `BdvWriter.create_pyramids(compression=...)` now applies the given compression (it was ignored).
 
 :bug: *Bugfix*: virtual stacks accept HDF5 block sizes larger than a (downsampled) level, like normal stacks.

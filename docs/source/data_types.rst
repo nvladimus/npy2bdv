@@ -43,8 +43,10 @@ All views in a file share one pixel type, chosen with the ``dtype`` argument of
 Casting
 -------
 
-Input arrays are cast to the writer's ``dtype`` with numpy rules, without a warning. Values outside the
-range wrap around or are truncated, so scale data yourself when changing the type:
+Input arrays are cast to the writer's ``dtype`` with numpy rules. If the cast changes values (out of
+range, fractions lost, or float32 precision exceeded), a ``UserWarning`` is issued, and the data is
+written anyway. Casts that cannot lose anything, such as uint16 data into a uint16 file, are not
+checked, so they cost no extra time. Scale data yourself when changing the type:
 
 .. code-block:: python
 
@@ -52,8 +54,23 @@ range wrap around or are truncated, so scale data yourself when changing the typ
    stack8 = (stack16 / 65535 * 255).astype(np.uint8)       # rescale to 0..255 first
 
    writer = npy2bdv.BdvWriter("eight_bit.h5", dtype='uint8')
-   writer.append_view(stack8)
+   writer.append_view(stack8)        # writer.append_view(stack16) would warn: values > 255
    writer.write_xml()
+   writer.close()
+
+To turn the warning into an error, e.g. in a pipeline that must not alter data:
+
+.. code-block:: python
+
+   import warnings
+
+   writer = npy2bdv.BdvWriter("strict.h5", dtype='uint8')
+   with warnings.catch_warnings():
+       warnings.simplefilter("error")
+       try:
+           writer.append_view(stack16)
+       except UserWarning as e:
+           print("refused:", e)
    writer.close()
 
 Downsampled levels are averages cast back to the file's type, so for integer types they are rounded down.
