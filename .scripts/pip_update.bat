@@ -1,12 +1,11 @@
-REM A script for updating the package
-REM run these commands in Anaconda py3.6 terminal
+REM A script for updating the package on PyPI
+REM run in the npy2bdv mamba env: mamba activate npy2bdv
 cd ./dist
 del "*.gz" "*.whl"
 cd ..
-python setup.py sdist bdist_wheel
+python -m build
 python -m twine upload dist/*
-REM enter your pypi credentials. 
 pause
 
-REM install the latest verions locally
+REM install the latest version locally
 REM pip install --upgrade npy2bdv

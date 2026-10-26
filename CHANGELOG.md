@@ -1,3 +1,7 @@
+## October 2026
+:wrench: Tested on Python 3.12 (numpy 2.5, h5py 3.16, scikit-image 0.26). Packaging moved from `setup.py` to `pyproject.toml`;
+`environment.yml` added for mamba/conda installs. `tqdm` added to `requirements.txt`.
+
 ## July 2024
 :bug: Speeds reported earlier in [`examples_h5writing.ipynb`](/docs/examples/examples_h5writing.ipynb) up to 2300 MB/s are likely due to bugs in testing. Currently speeds of 200 MB/s are more realistic.
 

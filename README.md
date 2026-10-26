@@ -2,11 +2,23 @@
  A library for writing/reading HDF5/XML datasets of 
  Fiji BigDataViewer/BigStitcher format as numpy arrays. 
  
-[![Python 3.6](https://img.shields.io/badge/python-3.6-blue.svg)](https://www.python.org/downloads/release/python-360/)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
  
  ## Installation
  Run `pip install npy2bdv` in the command line. Use `import npy2bdv` in the code.
+
+ ### From source (development)
+ With [mamba](https://github.com/conda-forge/miniforge) (or conda):
+ ```
+ git clone https://github.com/nvladimus/npy2bdv.git
+ cd npy2bdv
+ mamba env create -f environment.yml
+ mamba activate npy2bdv
+ ```
+ Or with pip only: `pip install -e .[dev]`.
+
+ Run the tests from the repo root: `python -m pytest test`.
  
  ## Documentation
 For a quick start, see examples in the Jupyter 
@@ -35,7 +47,7 @@ API [documentation](https://nvladimus.github.io/npy2bdv/).
  See [Recent changes](CHANGELOG.md)
  
  ## Writing speed
- Currently speeds betewen 150 - 320 MB/s were achieved with confidence. Speeds of up to 2300 MB/s reported in earlier versions are likely due to bugs in testing methods in notebook [`examples_h5writing.ipynb`](/docs/examples/examples_h5writing.ipynb). More tesing is underway.
+ Currently speeds between 150 - 320 MB/s were achieved with confidence. Speeds of up to 2300 MB/s reported in earlier versions are likely due to bugs in testing methods in notebook [`examples_h5writing.ipynb`](/docs/examples/examples_h5writing.ipynb). More testing is underway.
 
  ## Acknowledgements
  This code was inspired by [Talley Lambert's](https://github.com/tlambert03/imarispy) code 

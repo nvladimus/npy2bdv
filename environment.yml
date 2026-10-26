@@ -1,0 +1,13 @@
+name: npy2bdv
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - h5py
+  - numpy
+  - scikit-image
+  - tqdm
+  - pytest
+  - pip
+  - pip:
+      - -e .

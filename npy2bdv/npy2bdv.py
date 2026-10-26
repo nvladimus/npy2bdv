@@ -725,7 +725,7 @@ class BdvEditor(BdvBase):
         with open(self.filename_xml, 'r') as file:
             root = ET.parse(file).getroot()
             element = root.find("./SequenceDescription/Timepoints[@type='range']")
-            nt = int(element.find('last').text) - int(element.find('first').text) + 1 if element else 0
+            nt = int(element.find('last').text) - int(element.find('first').text) + 1 if element is not None else 0
             ni = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='illumination']/Illumination"))
             nch = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='channel']/Channel"))
             ntiles = len(root.findall("./SequenceDescription/ViewSetups/Attributes[@name='tile']/Tile"))

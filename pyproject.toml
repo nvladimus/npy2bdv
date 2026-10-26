@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "npy2bdv"
+version = "1.0.9"
+description = "Package for writing/reading 3d numpy arrays to/from HDF5 files (for Fiji/BigDataViewer/BigStitcher)."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Nikita Vladimirov", email = "nvladimus@gmail.com" }]
+requires-python = ">=3.9"
+dependencies = [
+    "h5py>=3.0",
+    "numpy>=1.19.2",
+    "scikit-image>=0.17.2",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "build", "twine", "pdoc3"]
+
+[project.urls]
+Homepage = "https://github.com/nvladimus/npy2bdv"
+Documentation = "https://nvladimus.github.io/npy2bdv/"
+
+[tool.setuptools]
+packages = ["npy2bdv"]
