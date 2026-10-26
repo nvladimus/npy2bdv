@@ -356,6 +356,34 @@ class TestReadWriteVirtual(unittest.TestCase):
         self.compare_pixels(self.fname0)
         self.compare_pixels(self.fname1)
 
+    def test_substack_pyramid_matches_view(self):
+        """Substacks that do not line up with the subsampling factors give the same pyramid as the whole view"""
+        subsamp = ((1, 1, 1), (4, 2, 2))
+        blockdim = ((2, 16, 16), (2, 16, 16))
+        stack = self.stacks[0]
+        fname_view = self.test_dir + "test_pyramid_view." + FILE_EXTENSION
+        fname_sub = self.test_dir + "test_pyramid_substacks." + FILE_EXTENSION
+        bdv_writer = npy2bdv.BdvWriter(fname_view, subsamp=subsamp, blockdim=blockdim)
+        bdv_writer.append_view(stack)
+        bdv_writer.write_xml()
+        bdv_writer.close()
+        bdv_writer = npy2bdv.BdvWriter(fname_sub, subsamp=subsamp, blockdim=blockdim)
+        bdv_writer.append_view(stack=None, virtual_stack_dim=stack.shape)
+        for z_start, z_stop in ((0, 3), (3, 6), (6, 8)):
+            for y_start, y_stop in ((101, 256), (0, 101)):
+                bdv_writer.append_substack(stack[z_start:z_stop, y_start:y_stop],
+                                           z_start=z_start, y_start=y_start)
+        bdv_writer.write_xml()
+        bdv_writer.close()
+        editor_view = npy2bdv.BdvEditor(fname_view)
+        editor_sub = npy2bdv.BdvEditor(fname_sub)
+        for ilevel in range(len(subsamp)):
+            self.assertTrue(np.array_equal(editor_view.read_view(ilevel=ilevel),
+                                           editor_sub.read_view(ilevel=ilevel)),
+                            f"Pyramid level {ilevel} differs.")
+        editor_view.finalize()
+        editor_sub.finalize()
+
     def tearDown(self) -> None:
         """"Tidies up after EACH test method has been run."""
         if os.path.exists(self.test_dir):

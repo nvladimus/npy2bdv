@@ -437,14 +437,29 @@ class BdvWriter(BdvBase):
             f"Substack offset {y_start} + y-dim {substack.shape[1]} > virtual stack y-dim {self.stack_shapes[isetup][1]}."
         assert x_start + substack.shape[2] <= self.stack_shapes[isetup][2], \
             f"Substack offset {x_start} + x-dim {substack.shape[2]} > virtual stack x-dim {self.stack_shapes[isetup][2]}."
+        starts = (z_start, y_start, x_start)
+        full_res = self._file_object_h5[self._fmt.format(time, isetup, 0)]["cells"]
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self._file_object_h5[group_name]["cells"]
-            subdata = self._subsample_stack(substack, self.subsamp[ilevel]).astype('int16')
-            print(dataset.shape, subdata.shape, self.subsamp[ilevel])
-            sub_z_start = int(z_start/self.subsamp[ilevel][0])
-            sub_y_start = int(y_start/self.subsamp[ilevel][1])
-            sub_x_start = int(x_start/self.subsamp[ilevel][2])
+            subsamp = self.subsamp[ilevel]
+            if ilevel > 0 and all(self.subsamp[0] == 1):
+                # Recompute every block of this level that the substack touches from the
+                # full-resolution data, so that blocks shared with neighbouring substacks
+                # are not averaged with zeros or overwritten.
+                lo = [start // f for start, f in zip(starts, subsamp)]
+                hi = [-(-(start + n) // f) for start, n, f in zip(starts, substack.shape, subsamp)]
+                block = full_res[lo[0] * subsamp[0]:hi[0] * subsamp[0],
+                                 lo[1] * subsamp[1]:hi[1] * subsamp[1],
+                                 lo[2] * subsamp[2]:hi[2] * subsamp[2]].astype('uint16')
+                dataset[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]] = \
+                    self._subsample_stack(block, subsamp).astype('int16')
+                continue
+            subdata = self._subsample_stack(substack, subsamp).astype('int16')
+            print(dataset.shape, subdata.shape, subsamp)
+            sub_z_start = int(z_start/subsamp[0])
+            sub_y_start = int(y_start/subsamp[1])
+            sub_x_start = int(x_start/subsamp[2])
             dataset[sub_z_start : sub_z_start + subdata.shape[0],
                     sub_y_start : sub_y_start + subdata.shape[1],
                     sub_x_start : sub_x_start + subdata.shape[2]] = subdata
