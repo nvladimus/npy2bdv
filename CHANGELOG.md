@@ -1,3 +1,15 @@
+## v.1.1.0
+:gem: New pixel types `uint8` and `float32`: `BdvWriter(..., dtype='uint8')` (issue #10). `BdvEditor` detects the type
+from the H5 file. The H5 file follows the BigDataViewer convention (`dataType` attribute of each setup), readable in
+Fiji with BigDataViewer-core >= 10.4.6. `uint16` files are unchanged and still open in older Fiji.
+
+:bug: *Bugfix*: `BdvWriter.append_view()` can skip time points or write them out of order (PR #19 by @aaronkanzer)
+
+:bug: *Bugfix*: pyramid levels of virtual stacks written by `append_substack()` are correct when substack edges
+do not align with subsampling factors (PR #20 by @aaronkanzer)
+
+:wrench: API docs are built and deployed to GitHub Pages automatically; publishing a GitHub release uploads to PyPI.
+
 ## October 2026
 :wrench: Tested on Python 3.12 (numpy 2.5, h5py 3.16, scikit-image 0.26). Packaging moved from `setup.py` to `pyproject.toml`;
 `environment.yml` added for mamba/conda installs. `tqdm` added to `requirements.txt`.

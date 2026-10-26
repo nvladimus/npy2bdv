@@ -1,0 +1,40 @@
+name: publish
+
+# Publishing a GitHub release tagged vX.Y.Z or v.X.Y.Z (matching the version in pyproject.toml) uploads it to PyPI.
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install .[dev]
+      - name: Check tag matches package version
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          tag=${GITHUB_REF_NAME#v}; tag=${tag#.}  # accepts v1.2.3 and v.1.2.3
+          test "$tag" = "$version" || { echo "Tag $GITHUB_REF_NAME != version $version"; exit 1; }
+      - run: python -m pytest test
+      - run: python -m build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # PyPI trusted publishing, no API token needed
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@v1.14.3

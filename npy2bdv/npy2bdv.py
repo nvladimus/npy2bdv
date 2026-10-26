@@ -49,6 +49,13 @@ class BdvBase:
         self.ntimes = self.nilluminations = self.nchannels = self.ntiles = self.nangles = self.nsetups = 0
         self.compression = None
         self.compressions_supported = (None, 'gzip', 'lzf')
+        self.dtype = np.dtype('uint16')
+        self.dtypes_supported = ('uint16', 'uint8', 'float32')
+
+    @property
+    def _h5_dtype(self):
+        """Storage type in H5: uint16 is stored as int16 (legacy BDV convention), other types natively."""
+        return np.dtype('int16') if self.dtype == np.uint16 else self.dtype
 
     def _determine_setup_id(self, illumination=0, channel=0, tile=0, angle=0):
         """Takes the view attributes (illumination, channel, tile, angle) and converts them into unique setup_id.
@@ -175,17 +182,17 @@ class BdvBase:
 
         Parameters:
         -----------
-            stack, numpy 3d array (z,y,x) of int16
+            stack, numpy 3d array (z,y,x)
             subsamp_level, array-like with 3 elements, eg (2,4,4) for downsampling z(x2), x and y (x4).
 
         Returns:
         --------
-            down-scaled stack, unit16 type.
+            down-scaled stack, of type self.dtype.
         """
         if all(subsamp_level[:] == 1):
             stack_sub = stack
         else:
-            stack_sub = skimage.transform.downscale_local_mean(stack, tuple(subsamp_level)).astype(np.uint16)
+            stack_sub = skimage.transform.downscale_local_mean(stack, tuple(subsamp_level)).astype(self.dtype)
         return stack_sub
 
     def _write_pyramids_header(self):
@@ -240,12 +247,12 @@ class BdvBase:
                 for ilevel in range(1, self.nlevels):
                     full_res_group_name = self._fmt.format(time, isetup, 0)
                     if full_res_group_name in self._file_object_h5:
-                        raw_data = self._file_object_h5[full_res_group_name]['cells'][()].astype('uint16')
+                        raw_data = self._file_object_h5[full_res_group_name]['cells'][()].astype(self.dtype)
                         pyramid_group_name = self._fmt.format(time, isetup, ilevel)
                         grp = self._file_object_h5.create_group(pyramid_group_name)
-                        subdata = self._subsample_stack(raw_data, self.subsamp[ilevel]).astype('int16')
+                        subdata = self._subsample_stack(raw_data, self.subsamp[ilevel]).astype(self._h5_dtype)
                         grp.create_dataset('cells', data=subdata, chunks=tuple(self.chunks[ilevel]),
-                                           maxshape=(None, None, None), compression=self.compression, dtype='int16')
+                                           maxshape=(None, None, None), compression=self.compression, dtype=self._h5_dtype)
 
 
 class BdvWriter(BdvBase):
@@ -255,7 +262,7 @@ class BdvWriter(BdvBase):
                  blockdim=((4, 256, 256),),
                  compression=None,
                  nilluminations=1, nchannels=1, ntiles=1, nangles=1,
-                 overwrite=False):
+                 overwrite=False, dtype='uint16'):
         """Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.
 
         Parameters:
@@ -275,11 +282,12 @@ class BdvWriter(BdvBase):
                 Number of view attributes, >=1.
             overwrite: boolean
                 If True, overwrite existing file. Default False.
+            dtype: str
+                Pixel type of all views: 'uint16' (default), 'uint8', or 'float32'. Input stacks are cast to it.
+                Types other than uint16 require BigDataViewer-core >= 10.4.6 (Fiji updated since 2023).
 
         .. note::
         ------
-        Input stacks and output files are assumed uint16 type.
-
         The h5 recommended block (chunk) size should be between 10 KB and 1 MB, larger for large arrays.
         For example, block dimensions (4,256,256)px gives ~0.5MB block size for type int16 (2 bytes) and writes very fast.
         Block size can be larger than stack dimension.
@@ -293,6 +301,8 @@ class BdvWriter(BdvBase):
                                                            f' {self.compressions_supported}'
         assert all([isinstance(element, int) for tupl in subsamp for element in
                     tupl]), 'subsamp values should be integers >= 1.'
+        assert dtype in self.dtypes_supported, f'Unknown dtype {dtype}, must be one of {self.dtypes_supported}'
+        self.dtype = np.dtype(dtype)
         if len(blockdim) < len(subsamp):
             print(f"INFO: blockdim levels ({len(blockdim)}) < subsamp levels ({len(subsamp)}):"
                   f" First-level block size {blockdim[0]} will be used for all levels")
@@ -372,6 +382,8 @@ class BdvWriter(BdvBase):
             data_chunks = np.flip(self.chunks, 1)
             grp.create_dataset('resolutions', data=data_subsamp, dtype='<f8', maxshape=(None, 3))
             grp.create_dataset('subdivisions', data=data_chunks, dtype='<i4', maxshape=(None, 3))
+            if self.dtype != np.uint16:  # BDV reads this attribute; without it, data is assumed (u)int16
+                grp.attrs.create('dataType', np.bytes_(self.dtype.name))
 
     def append_plane(self, plane, z, time=0, illumination=0, channel=0, tile=0, angle=0):
         """Append a plane to a virtual stack. Requires stack initialization by calling e.g.
@@ -403,7 +415,7 @@ class BdvWriter(BdvBase):
         for ilevel in range(self.nlevels):
             group_name = self._fmt.format(time, isetup, ilevel)
             dataset = self._file_object_h5[group_name]["cells"]
-            dataset[z, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype('int16')
+            dataset[z, :, :] = self._subsample_plane(plane, self.subsamp[ilevel]).astype(self._h5_dtype)
 
     def append_substack(self, substack, z_start, y_start=0, x_start=0,
                         time=0, illumination=0, channel=0, tile=0, angle=0):
@@ -451,11 +463,11 @@ class BdvWriter(BdvBase):
                 hi = [-(-(start + n) // f) for start, n, f in zip(starts, substack.shape, subsamp)]
                 block = full_res[lo[0] * subsamp[0]:hi[0] * subsamp[0],
                                  lo[1] * subsamp[1]:hi[1] * subsamp[1],
-                                 lo[2] * subsamp[2]:hi[2] * subsamp[2]].astype('uint16')
+                                 lo[2] * subsamp[2]:hi[2] * subsamp[2]].astype(self.dtype)
                 dataset[lo[0]:hi[0], lo[1]:hi[1], lo[2]:hi[2]] = \
-                    self._subsample_stack(block, subsamp).astype('int16')
+                    self._subsample_stack(block, subsamp).astype(self._h5_dtype)
                 continue
-            subdata = self._subsample_stack(substack, subsamp).astype('int16')
+            subdata = self._subsample_stack(substack, subsamp).astype(self._h5_dtype)
             print(dataset.shape, subdata.shape, subsamp)
             sub_z_start = int(z_start/subsamp[0])
             sub_y_start = int(y_start/subsamp[1])
@@ -474,8 +486,8 @@ class BdvWriter(BdvBase):
         
         Parameters:
         -----------
-            stack: numpy array (uint16) or None
-                A 3-dimensional stack of uint16 data in (z,y,x) axis order.
+            stack: numpy array or None
+                A 3-dimensional stack in (z,y,x) axis order.
                 If None, creates an empty dataset of size huge_stack_dim.
             virtual_stack_dim: None, or tuple of (z,y,x) dimensions, optional.
                 Dimensions to allocate a huge stack and fill it later by individual planes or substacks.
@@ -523,13 +535,13 @@ class BdvWriter(BdvBase):
                 del self._file_object_h5[group_name]
             grp = self._file_object_h5.create_group(group_name)
             if stack is not None:
-                subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype('int16')
+                subdata = self._subsample_stack(stack, self.subsamp[ilevel]).astype(self._h5_dtype)
                 grp.create_dataset('cells', data=subdata, chunks=self.chunks[ilevel],
-                                   maxshape=(None, None, None), compression=self.compression, dtype='int16')
+                                   maxshape=(None, None, None), compression=self.compression, dtype=self._h5_dtype)
             else:  # a virtual stack initialized
                 grp.create_dataset('cells', chunks=self.chunks[ilevel],
                                    shape=np.ceil(virtual_stack_dim / self.subsamp[ilevel]),
-                                   compression=self.compression, dtype='int16')
+                                   compression=self.compression, dtype=self._h5_dtype)
         if m_affine is not None:
             self.affine_matrices[isetup] = m_affine.copy()
             self.affine_names[isetup] = name_affine
@@ -544,18 +556,18 @@ class BdvWriter(BdvBase):
         
         Parameters:
         -----------
-            plane: numpy 2d array (y,x) of int16
+            plane: numpy 2d array (y,x)
             subsamp_level: array-like with 3 elements, eg (1,4,4) for downsampling x and y (x4).
             
         Returns:
         --------
-            down-scaled plane, unit16 type.
+            down-scaled plane, of type self.dtype.
         """
         assert subsamp_level[0] == 1, "z-subsampling must be == 1 for virtual stacks."
         if all(subsamp_level[:] == 1):
             plane_sub = plane
         else:
-            plane_sub = skimage.transform.downscale_local_mean(plane, tuple(subsamp_level[1:])).astype(np.uint16)
+            plane_sub = skimage.transform.downscale_local_mean(plane, tuple(subsamp_level[1:])).astype(self.dtype)
         return plane_sub
 
     def write_xml(self, camera_name="default",  microscope_name="default",
@@ -715,6 +727,8 @@ class BdvEditor(BdvBase):
         self.mode = mode
         self.ntimes, self.nilluminations, self.nchannels, self.ntiles, self.nangles = self.get_attribute_count()
         self.nsetups = self.nilluminations * self.nchannels * self.ntiles * self.nangles
+        data_type = self._file_object_h5['s00'].attrs.get('dataType', b'uint16')
+        self.dtype = np.dtype(data_type.decode() if isinstance(data_type, bytes) else data_type)
 
     def get_attribute_count(self):
         """ Get the number of view attributes: time points, illuminations, channels, tiles, angles, using the XML file.
@@ -733,7 +747,7 @@ class BdvEditor(BdvBase):
         return nt, ni, nch, ntiles, nang
 
     def read_view(self, time=0, illumination=0, channel=0, tile=0, angle=0, ilevel=0, z=None):
-        """Read a view (a 3D stack or a single plane) specified by its time, attributes, and downsampling level into a numpy array (uint16).
+        """Read a view (a 3D stack or a single plane) specified by its time, attributes, and downsampling level into a numpy array of type self.dtype.
         Todo: implement detection of missing views using XML file, return None.
 
         Parameters:
@@ -750,14 +764,14 @@ class BdvEditor(BdvBase):
 
         Returns:
         --------
-            dataset: numpy array (dim=3 or 2, dtype=uint16)"""
+            dataset: numpy array (dim=3 or 2, dtype=self.dtype: uint16, uint8 or float32)"""
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         group_name = self._fmt.format(time, isetup, ilevel)
         if self._file_object_h5:
             if z is None:
-                dataset = self._file_object_h5[group_name]["cells"][()].astype('uint16')
+                dataset = self._file_object_h5[group_name]["cells"][()].astype(self.dtype)
             elif z >= 0:
-                dataset = self._file_object_h5[group_name]["cells"][z, ...].astype('uint16')
+                dataset = self._file_object_h5[group_name]["cells"][z, ...].astype(self.dtype)
             else:
                 raise ValueError('z must be >= 0')
             return dataset

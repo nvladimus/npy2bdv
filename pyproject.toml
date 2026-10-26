@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "npy2bdv"
-version = "1.0.9"
+version = "1.1.0"
 description = "Package for writing/reading 3d numpy arrays to/from HDF5 files (for Fiji/BigDataViewer/BigStitcher)."
 readme = "README.md"
 license = { file = "LICENSE" }

@@ -19,6 +19,12 @@
  Or with pip only: `pip install -e .[dev]`.
 
  Run the tests from the repo root: `python -m pytest test`.
+
+ ### Releasing
+ Bump `version` in `pyproject.toml`, then publish a GitHub release tagged `v<version>`.
+ The [`publish`](.github/workflows/publish.yml) workflow runs the tests and uploads the package to PyPI.
+ API docs are rebuilt and deployed to GitHub Pages on every push to `master`
+ ([`docs`](.github/workflows/docs.yml) workflow). To build them locally: `pdoc --html -o _build npy2bdv`.
  
  ## Documentation
 For a quick start, see examples in the Jupyter 
@@ -27,6 +33,8 @@ For a quick start, see examples in the Jupyter
 API [documentation](https://nvladimus.github.io/npy2bdv/).
 
  ## Supported H5/XML writing options
+ * pixel types `uint16` (default), `uint8`, `float32`: `BdvWriter(..., dtype='float32')`.
+   Types other than `uint16` need an up-to-date Fiji (BigDataViewer-core >= 10.4.6).
  * compression methods `None`, `gzip`, `lzf` (`None` by default).
  * downsampling options: 
     - any number of mipmap levels

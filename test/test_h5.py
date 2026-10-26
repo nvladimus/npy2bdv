@@ -4,6 +4,7 @@ import os
 import shutil
 import unittest
 import numpy as np
+import skimage.transform
 from .sample import generate_test_image
 
 TOY_DATASET_PATH = './test/toy_datasets/'
@@ -388,6 +389,95 @@ class TestReadWriteVirtual(unittest.TestCase):
         """"Tidies up after EACH test method has been run."""
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)
+
+
+class TestDtypes(unittest.TestCase):
+    """Write and read back uint8 and float32 views (issue #10): in memory, virtual, and with lazy pyramids."""
+    def setUp(self) -> None:
+        self.test_dir = "./test/test_files_dtypes/"
+        os.makedirs(self.test_dir, exist_ok=True)
+        self.subsamp = ((1, 1, 1), (2, 2, 2))
+        self.blockdim = ((4, 16, 16), (4, 16, 16))
+        rng = np.random.default_rng(0)
+        self.stacks = {'uint8': rng.integers(0, 256, (8, 32, 33), dtype=np.uint8),
+                       'float32': rng.normal(0, 1000, (8, 32, 33)).astype(np.float32)}
+
+    def expected_level(self, stack, ilevel):
+        if ilevel == 0:
+            return stack
+        return skimage.transform.downscale_local_mean(stack, self.subsamp[ilevel]).astype(stack.dtype)
+
+    def check_file(self, fname, stack):
+        dtype = stack.dtype.name
+        editor = npy2bdv.BdvEditor(fname)
+        self.assertEqual(editor.dtype, stack.dtype)
+        self.assertEqual(editor._file_object_h5['s00'].attrs['dataType'], dtype.encode())
+        for ilevel in range(len(self.subsamp)):
+            view = editor.read_view(ilevel=ilevel)
+            self.assertEqual(view.dtype, stack.dtype)
+            self.assertEqual(editor._file_object_h5[f't00000/s00/{ilevel}/cells'].dtype, stack.dtype)
+            self.assertTrue(np.array_equal(view, self.expected_level(stack, ilevel)),
+                            f"{dtype}: level {ilevel} differs.")
+        editor.finalize()
+
+    def test_append_view(self):
+        for dtype, stack in self.stacks.items():
+            with self.subTest(dtype=dtype):
+                fname = self.test_dir + f"view_{dtype}.h5"
+                writer = npy2bdv.BdvWriter(fname, subsamp=self.subsamp, blockdim=self.blockdim, dtype=dtype)
+                writer.append_view(stack)
+                writer.write_xml()
+                writer.close()
+                self.check_file(fname, stack)
+
+    def test_virtual_stack_by_plane(self):
+        for dtype, stack in self.stacks.items():
+            with self.subTest(dtype=dtype):
+                fname = self.test_dir + f"virtual_{dtype}.h5"
+                subsamp = ((1, 1, 1), (1, 2, 2))
+                writer = npy2bdv.BdvWriter(fname, subsamp=subsamp, blockdim=self.blockdim, dtype=dtype)
+                writer.append_view(stack=None, virtual_stack_dim=stack.shape)
+                for z in range(stack.shape[0]):
+                    writer.append_plane(stack[z], z=z)
+                writer.write_xml()
+                writer.close()
+                editor = npy2bdv.BdvEditor(fname)
+                self.assertTrue(np.array_equal(editor.read_view(), stack))
+                expected = skimage.transform.downscale_local_mean(stack, (1, 2, 2)).astype(stack.dtype)
+                self.assertTrue(np.array_equal(editor.read_view(ilevel=1), expected))
+                editor.finalize()
+
+    def test_create_pyramids(self):
+        for dtype, stack in self.stacks.items():
+            with self.subTest(dtype=dtype):
+                fname = self.test_dir + f"pyramids_{dtype}.h5"
+                writer = npy2bdv.BdvWriter(fname, blockdim=(self.blockdim[0],), dtype=dtype)
+                writer.append_view(stack)
+                writer.create_pyramids(subsamp=(self.subsamp[1],), blockdim=(self.blockdim[1],))
+                writer.write_xml()
+                writer.close()
+                self.check_file(fname, stack)
+
+    def test_uint16_is_legacy_int16(self):
+        """Default uint16 stays stored as int16 without a dataType attribute, so older Fiji can read it."""
+        fname = self.test_dir + "legacy_uint16.h5"
+        stack = np.full((2, 4, 4), 60000, dtype=np.uint16)
+        writer = npy2bdv.BdvWriter(fname)
+        writer.append_view(stack)
+        writer.write_xml()
+        writer.close()
+        editor = npy2bdv.BdvEditor(fname)
+        self.assertNotIn('dataType', editor._file_object_h5['s00'].attrs)
+        self.assertEqual(editor._file_object_h5['t00000/s00/0/cells'].dtype, np.int16)
+        self.assertTrue(np.array_equal(editor.read_view(), stack))
+        editor.finalize()
+
+    def test_unsupported_dtype(self):
+        with self.assertRaises(AssertionError):
+            npy2bdv.BdvWriter(self.test_dir + "bad.h5", dtype='uint32')
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.test_dir, ignore_errors=True)
 
 
 class TestToyDatasets(unittest.TestCase):
