@@ -453,10 +453,13 @@ class TestDtypes(unittest.TestCase):
                 fname = self.test_dir + f"pyramids_{dtype}.h5"
                 writer = npy2bdv.BdvWriter(fname, blockdim=(self.blockdim[0],), dtype=dtype)
                 writer.append_view(stack)
-                writer.create_pyramids(subsamp=(self.subsamp[1],), blockdim=(self.blockdim[1],))
+                writer.create_pyramids(subsamp=(self.subsamp[1],), blockdim=(self.blockdim[1],), compression='gzip')
                 writer.write_xml()
                 writer.close()
                 self.check_file(fname, stack)
+                editor = npy2bdv.BdvEditor(fname, mode='r')
+                self.assertEqual(editor._file_object_h5['t00000/s00/1/cells'].compression, 'gzip')
+                editor.finalize()
 
     def test_uint16_is_legacy_int16(self):
         """Default uint16 stays stored as int16 without a dataType attribute, so older Fiji can read it."""

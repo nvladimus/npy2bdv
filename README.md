@@ -23,14 +23,14 @@
  ### Releasing
  Bump `version` in `pyproject.toml`, then publish a GitHub release tagged `v<version>`.
  The [`publish`](.github/workflows/publish.yml) workflow runs the tests and uploads the package to PyPI.
- API docs are rebuilt and deployed to GitHub Pages on every push to `master`
- ([`docs`](.github/workflows/docs.yml) workflow). To build them locally: `pdoc --html -o _build npy2bdv`.
+ The docs are rebuilt and deployed to GitHub Pages on every push to `master`
+ ([`docs`](.github/workflows/docs.yml) workflow). To build them locally:
+ `pip install -e .[docs]`, then `sphinx-build -b html docs/source docs/build/html`.
  
  ## Documentation
-For a quick start, see examples in the Jupyter 
-[`notebook`](/docs/examples/examples_h5writing.ipynb).
+**https://nvladimus.github.io/npy2bdv/**: a user guide with code examples, and a detailed API reference.
 
-API [documentation](https://nvladimus.github.io/npy2bdv/).
+Larger, timed examples are in the Jupyter [`notebook`](/docs/examples/examples_h5writing.ipynb).
 
  ## Supported H5/XML writing options
  * pixel types `uint16` (default), `uint8`, `float32`: `BdvWriter(..., dtype='float32')`.

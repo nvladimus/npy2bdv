@@ -18,7 +18,6 @@ npy2bdv/ignore/
 .packaging.bat
 .Python
 build/
-!/docs/build/
 develop-eggs/
 dist/
 downloads/

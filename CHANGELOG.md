@@ -8,14 +8,21 @@ Fiji with BigDataViewer-core >= 10.4.6. `uint16` files are unchanged and still o
 :bug: *Bugfix*: pyramid levels of virtual stacks written by `append_substack()` are correct when substack edges
 do not align with subsampling factors (PR #20 by @aaronkanzer)
 
-:wrench: API docs are built and deployed to GitHub Pages automatically; publishing a GitHub release uploads to PyPI.
+:bug: *Bugfix*: `BdvWriter.create_pyramids(compression=...)` now applies the given compression (it was ignored).
+
+:bug: *Bugfix*: virtual stacks accept HDF5 block sizes larger than a (downsampled) level, like normal stacks.
+
+:book: New documentation site with a user guide, code examples and a detailed API reference:
+https://nvladimus.github.io/npy2bdv/. All code examples run as part of the tests.
+
+:wrench: Docs are built and deployed to GitHub Pages automatically; publishing a GitHub release uploads to PyPI.
 
 ## October 2026
 :wrench: Tested on Python 3.12 (numpy 2.5, h5py 3.16, scikit-image 0.26). Packaging moved from `setup.py` to `pyproject.toml`;
 `environment.yml` added for mamba/conda installs. `tqdm` added to `requirements.txt`.
 
 ## July 2024
-:bug: Speeds reported earlier in [`examples_h5writing.ipynb`](/docs/examples/examples_h5writing.ipynb) up to 2300 MB/s are likely due to bugs in testing. Currently speeds of 200 MB/s are more realistic.
+:bug: Speeds reported earlier in [`examples_h5writing.ipynb`](https://github.com/nvladimus/npy2bdv/blob/master/docs/examples/examples_h5writing.ipynb) up to 2300 MB/s are likely due to bugs in testing. Currently speeds of 200 MB/s are more realistic.
 
 ## v.1.0.9
 :bug: *Bugfix*: `BdvWriter.append_view()` now works correctly when downsampling odd-sized datasets, e.g. (31, 299, 301) (PR #15 by @pr4deepr)

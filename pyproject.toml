@@ -18,7 +18,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "build", "twine", "pdoc3"]
+dev = ["pytest", "build", "twine"]
+docs = ["sphinx>=8", "furo", "myst-parser", "sphinx-design", "sphinx-copybutton"]
 
 [project.urls]
 Homepage = "https://github.com/nvladimus/npy2bdv"

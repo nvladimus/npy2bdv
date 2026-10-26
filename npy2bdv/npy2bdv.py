@@ -19,13 +19,12 @@ class BdvBase:
         __version__ = 'unknown'
 
     def __init__(self, filename):
-        """
-        Base class for `BdvWriter` and `BdvEditor` classes. Not intended for user interaction.
+        """Base class for `BdvWriter` and `BdvEditor`. Not intended for direct use.
 
-        Parameters:
-        -----------
-            filename: string,
-                Path to either .h5 or .xml file. The other file of the pair will be in the same folder.
+        Parameters
+        ----------
+        filename : str
+            Path to either the .h5 or the .xml file. The other file of the pair is in the same folder.
         """
         self._fmt = 't{:05d}/s{:02d}/{}'
         if filename[-2:] == 'h5':
@@ -92,24 +91,31 @@ class BdvBase:
             pass
 
     def read_affine(self, time=0, illumination=0, channel=0, tile=0, angle=0, index=0):
-        """" Read affine matrix transformation of a view from the XML file.
+        """Read an affine transformation of a view from the XML file.
 
-        Parameters:
-        -----------
-            time: int
-                Time index, >=0.
-            illumination: int
-            channel: int
-            tile: int
-            angle: int
-                Indices of the view attributes, >= 0.
-            index: int
-                Index of the transformation (default 0, i.e. the top one, which is applied last).
+        A view can have several transformations (e.g. calibration, then registration).
+        They are stored as a list in the XML file; BigDataViewer applies them bottom to top.
 
-        Returns:
+        Parameters
+        ----------
+        time : int
+            Time point index, >= 0.
+        illumination, channel, tile, angle : int
+            Indices of the view attributes, >= 0.
+        index : int
+            Index of the transformation in the list. Default 0 is the top one, which is applied last.
+
+        Returns
+        -------
+        numpy.ndarray
+            Float array of shape (3, 4). The first three columns are the linear part,
+            the last column is the translation (x, y, z).
+
+        Examples
         --------
-            Numpy (3,4) float array, the transformation matrix.
-            """
+        >>> editor = npy2bdv.BdvEditor("dataset.xml")
+        >>> affine = editor.read_affine(time=0, tile=1)
+        """
         self._get_xml_root()
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         found = False
@@ -125,27 +131,31 @@ class BdvBase:
 
     def append_affine(self, m_affine, name_affine="Appended affine transformation using npy2bdv.",
                       time=0, illumination=0, channel=0, tile=0, angle=0):
-        """" Append affine matrix transformation to a view.
-        If using in `BdvWriter`, call `BdvWriter.write_xml_file(...)` first, to create a valid XML tree.
-        The transformation will be placed on top,  e.g. executed by the BigStitcher last.
-        The transformation is defined as matrix of shape (3,4).
-        Each column represents coordinate unit vectors after the transformation.
-        The last column represents translation in (x,y,z).
+        """Append an affine transformation to a view, on top of the existing ones.
 
-        Parameters:
-        -----------
-            time: int
-                Time index, >=0.
-            illumination: int
-            channel: int
-            tile: int
-            angle: int
-                Indices of the view attributes, >= 0.
-            m_affine: numpy array of shape (3,4)
-                Coefficients of affine transformation matrix (m00, m01, ...)
-            name_affine: str, optional
-                Name of the affine transformation.
-            """
+        The new transformation is placed at the top of the list, so BigDataViewer/BigStitcher
+        applies it last. The XML file is written immediately.
+        With `BdvWriter`, call `BdvWriter.write_xml` first, so that the XML file exists.
+
+        Parameters
+        ----------
+        m_affine : numpy.ndarray
+            Array of shape (3, 4). The first three columns are the images of the x, y, z unit vectors
+            (rotation, scaling, shear), the last column is the translation (x, y, z), in pixels.
+        name_affine : str, optional
+            Name of the transformation, shown in BigStitcher.
+        time : int
+            Time point index, >= 0.
+        illumination, channel, tile, angle : int
+            Indices of the view attributes, >= 0.
+
+        Examples
+        --------
+        Shift tile 1 by 100 px in x:
+
+        >>> shift = np.array([[1., 0, 0, 100], [0, 1, 0, 0], [0, 0, 1, 0]])
+        >>> editor.append_affine(shift, name_affine="tile shift", tile=1)
+        """
         self._get_xml_root()
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         assert m_affine.shape == (3,4), "m_affine must be a numpy array of shape (3,4)"
@@ -217,18 +227,29 @@ class BdvBase:
                 raise ValueError(f"Group name {group_name} not found in the H5 file.")
 
     def create_pyramids(self, subsamp=((4, 8, 8),), blockdim=((8, 128, 128),), compression=None) -> None:
-        """ Compute and write downsampled versions (pyramids) of the existing image dataset.
+        """Compute and write downsampled resolution levels (pyramids) of all views already written.
 
-        Parameters:
-        -----------
-        :param subsamp: tuple of tuples
-                Subsampling levels in (z,y,x) order. Integers >= 1, default value ((4, 8, 8),).
-        :param blockdim: tuple of tuples
-                Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),).
-                Optimal block size ~0.5 MB.
-        :param compression: None or str
-                (None, 'gzip', 'lzf'), HDF5 compression method. Default is None for high-speed writing.
-        :return: None
+        Use it for "lazy" downsampling: write raw full-resolution data at full speed during
+        acquisition, then call this method once before `write_xml`. The writer must have been
+        created with a single resolution level (the default `subsamp`).
+
+        Parameters
+        ----------
+        subsamp : tuple of tuples
+            Additional subsampling levels in (z, y, x) order, integers >= 1, e.g. ``((2, 4, 4), (4, 8, 8))``.
+            The full-resolution level is kept and does not need to be listed.
+        blockdim : tuple of tuples
+            HDF5 block (chunk) size of each new level, in (z, y, x) order, same length as `subsamp`.
+        compression : {None, 'gzip', 'lzf'}
+            HDF5 compression of the new levels. Default None.
+
+        Examples
+        --------
+        >>> writer = npy2bdv.BdvWriter("raw.h5")
+        >>> writer.append_view(stack)
+        >>> writer.create_pyramids(subsamp=((2, 4, 4),), blockdim=((16, 64, 64),))
+        >>> writer.write_xml()
+        >>> writer.close()
         """
         assert len(self.subsamp) == 1, f"Image pyramids already exist, len(self.subsamp) = {len(self.subsamp)}"
         assert len(self.chunks) == 1, f"Image pyramids already exist, len(self.chunks) = {len(self.chunks)}"
@@ -256,10 +277,57 @@ class BdvBase:
                         grp = self._file_object_h5.create_group(pyramid_group_name)
                         subdata = self._subsample_stack(raw_data, self.subsamp[ilevel]).astype(self._h5_dtype)
                         grp.create_dataset('cells', data=subdata, chunks=tuple(self.chunks[ilevel]),
-                                           maxshape=(None, None, None), compression=self.compression, dtype=self._h5_dtype)
+                                           maxshape=(None, None, None), compression=compression, dtype=self._h5_dtype)
 
 
 class BdvWriter(BdvBase):
+    """Write numpy arrays into a new HDF5/XML file pair readable by Fiji BigDataViewer and BigStitcher.
+
+    A dataset consists of *views*: 3d stacks, each identified by its time point and four attributes
+    (illumination, channel, tile, angle). The number of each attribute is fixed when the writer is
+    created; views are then added with `append_view` in any order, and missing views are allowed.
+
+    Typical workflow: create the writer, call `append_view` for every view, then `write_xml`
+    and `close`.
+
+    Parameters
+    ----------
+    filename : str
+        Path of the .h5 file to create (or of the .xml file; the other file of the pair gets the
+        same name). The XML file is written by `write_xml`.
+    subsamp : tuple of tuples
+        Resolution levels as subsampling factors in (z, y, x) order, integers >= 1.
+        The first level is normally full resolution. Default ``((1, 1, 1),)``: full resolution only.
+        Example with two downsampled levels: ``((1, 1, 1), (2, 4, 4), (4, 8, 8))``.
+    blockdim : tuple of tuples
+        HDF5 block (chunk) size of each level, in pixels, (z, y, x) order. If fewer entries than
+        `subsamp` are given, the first one is used for all levels. Default ``((4, 256, 256),)``.
+    compression : {None, 'gzip', 'lzf'}
+        HDF5 compression. Default None, the fastest for writing.
+    nilluminations, nchannels, ntiles, nangles : int
+        Number of illuminations, channels, tiles and angles, each >= 1. Default 1.
+    overwrite : bool
+        If True, an existing file is replaced. If False (default), an existing file raises `FileExistsError`.
+    dtype : {'uint16', 'uint8', 'float32'}
+        Pixel type of all views, default 'uint16'. Input arrays are cast to this type, so values outside
+        its range wrap around or are truncated. Types other than uint16 need BigDataViewer-core >= 10.4.6
+        (any Fiji updated since 2023).
+
+    Notes
+    -----
+    Recommended HDF5 block size is between 10 KB and 1 MB: e.g. ``(4, 256, 256)`` px of uint16 is 0.5 MB
+    and writes fast. Blocks can be larger than the stack.
+
+    Examples
+    --------
+    >>> import numpy as np, npy2bdv
+    >>> stack = np.random.randint(0, 1000, (64, 512, 512), dtype=np.uint16)
+    >>> writer = npy2bdv.BdvWriter("dataset.h5", nchannels=2)
+    >>> writer.append_view(stack, time=0, channel=0)
+    >>> writer.append_view(stack, time=0, channel=1)
+    >>> writer.write_xml()
+    >>> writer.close()
+    """
 
     def __init__(self, filename,
                  subsamp=((1, 1, 1),),
@@ -267,35 +335,6 @@ class BdvWriter(BdvBase):
                  compression=None,
                  nilluminations=1, nchannels=1, ntiles=1, nangles=1,
                  overwrite=False, dtype='uint16'):
-        """Class for writing multiple numpy 3d-arrays into BigDataViewer/BigStitcher HDF5 file.
-
-        Parameters:
-        -----------
-            filename: string
-                File name (full path).
-            subsamp: tuple of tuples
-                Subsampling levels in (z,y,x) order. Integers >= 1, default value ((1, 1, 1),) for no subsampling.
-            blockdim: tuple of tuples
-                Block size for h5 storage, in pixels, in (z,y,x) order. Default ((4,256,256),), see notes.
-            compression: None or str
-                (None, 'gzip', 'lzf'), HDF5 compression method. Default is None for high-speed writing.
-            nilluminations: int
-            nchannels: int
-            ntiles: int
-            nangles: int
-                Number of view attributes, >=1.
-            overwrite: boolean
-                If True, overwrite existing file. Default False.
-            dtype: str
-                Pixel type of all views: 'uint16' (default), 'uint8', or 'float32'. Input stacks are cast to it.
-                Types other than uint16 require BigDataViewer-core >= 10.4.6 (Fiji updated since 2023).
-
-        .. note::
-        ------
-        The h5 recommended block (chunk) size should be between 10 KB and 1 MB, larger for large arrays.
-        For example, block dimensions (4,256,256)px gives ~0.5MB block size for type int16 (2 bytes) and writes very fast.
-        Block size can be larger than stack dimension.
-        """
         super().__init__(filename)
         assert nilluminations >= 1, "Total number of illuminations must be at least 1."
         assert nchannels >= 1, "Total number of channels must be at least 1."
@@ -342,18 +381,21 @@ class BdvWriter(BdvBase):
         self.setup_id_present = [[False] * self.nsetups]
 
     def set_attribute_labels(self, attribute: str, labels: tuple) -> None:
-        """
-        Set the view attribute labels that will be visible in BDV/BigStitcher, e.g. `'channel': ('488', '561')`.
+        """Set names of attribute values, shown in BigDataViewer/BigStitcher instead of 0, 1, 2...
 
-        Example: `writer.set_attribute_labels('channel', ('488', '561'))`.
+        Call before `write_xml`.
 
-        Parameters:
-        -----------
-            attribute: str
-                One of the view attributes: 'illumination', 'channel', 'angle', 'tile'.
+        Parameters
+        ----------
+        attribute : {'illumination', 'channel', 'tile', 'angle'}
+            The view attribute to label.
+        labels : tuple of str
+            One label per attribute value, e.g. ``('488', '561')`` for 2 channels or ``('left', 'right')``
+            for 2 illuminations. Length must equal the number of values of this attribute.
 
-            labels: array-like
-                Tuple of labels, e.g. for illumination, ('left', 'right'); for channel, ('488', '561').
+        Examples
+        --------
+        >>> writer.set_attribute_labels('channel', ('488', '561'))
         """
 
         assert attribute in self.attribute_counts.keys(), f'Attribute must be one of {self.attribute_counts.keys()}'
@@ -390,22 +432,29 @@ class BdvWriter(BdvBase):
                 grp.attrs.create('dataType', np.bytes_(self.dtype.name))
 
     def append_plane(self, plane, z, time=0, illumination=0, channel=0, tile=0, angle=0):
-        """Append a plane to a virtual stack. Requires stack initialization by calling e.g.
-        `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
-        
-        Parameters:
-        -----------
-            plane: array_like
-                A 2d numpy array of (y,x) pixel values.
-            z: int
-                Plane z-position in the virtual stack, >=0.
-            time: int
-                Time index of the view, >=0.
-            illumination: int
-            channel: int
-            tile: int
-            angle: int
-                Indices of the view attributes, >=0.
+        """Write one plane into a virtual stack.
+
+        The virtual stack must first be allocated with
+        ``append_view(stack=None, virtual_stack_dim=(nz, ny, nx), ...)`` for the same view.
+        Planes can be written in any order. Downsampled levels are computed per plane, so all
+        subsampling factors in z must be 1, e.g. ``subsamp=((1, 1, 1), (1, 4, 4))``.
+
+        Parameters
+        ----------
+        plane : numpy.ndarray
+            2d array of shape (ny, nx), equal to the (y, x) size of the virtual stack.
+        z : int
+            Plane index in the virtual stack, 0 <= z < nz.
+        time : int
+            Time point index, >= 0.
+        illumination, channel, tile, angle : int
+            Indices of the view attributes, >= 0.
+
+        Examples
+        --------
+        >>> writer.append_view(stack=None, virtual_stack_dim=(1000, 2048, 2048))
+        >>> for z in range(1000):
+        ...     writer.append_plane(camera.get_frame(), z=z)
         """
         
         assert self.virtual_stacks, "Appending planes requires initialization with virtual stack, " \
@@ -423,24 +472,30 @@ class BdvWriter(BdvBase):
 
     def append_substack(self, substack, z_start, y_start=0, x_start=0,
                         time=0, illumination=0, channel=0, tile=0, angle=0):
-        """Append a substack to a virtual stack. Requires stack initialization by calling e.g.
-        `append_view(stack=None, virtual_stack_dim=(1000,2048,2048))` beforehand.
+        """Write a 3d block (substack) into a virtual stack.
 
-        Parameters:
-        -----------
-            substack: array_like
-                A 3d numpy array of (z,y,x) pixel values.
-            z_start: int
-            y_start: int
-            z_start: int
-                Offsets (z,y,x) of the substack in the virtual stack.
-            time: int
-                Time index of the view, >=0.
-            illumination: int
-            channel: int
-            tile: int
-            angle: int
-                Indices of the view attributes, >=0.
+        The virtual stack must first be allocated with
+        ``append_view(stack=None, virtual_stack_dim=(nz, ny, nx), ...)`` for the same view.
+        Substacks can be written in any order and need not align with the subsampling factors:
+        downsampled levels are recomputed from the full-resolution data, so the final pyramid is the
+        same as for `append_view` with the whole stack. Unlike `append_plane`, subsampling in z is allowed.
+
+        Parameters
+        ----------
+        substack : numpy.ndarray
+            3d array in (z, y, x) order. It must fit inside the virtual stack at the given offsets.
+        z_start, y_start, x_start : int
+            Offsets of the substack in the virtual stack, in pixels. `y_start` and `x_start` default to 0.
+        time : int
+            Time point index, >= 0.
+        illumination, channel, tile, angle : int
+            Indices of the view attributes, >= 0.
+
+        Examples
+        --------
+        >>> writer.append_view(stack=None, virtual_stack_dim=(400, 2048, 2048))
+        >>> for z0 in range(0, 400, 100):
+        ...     writer.append_substack(load_chunk(z0), z_start=z0)
         """
 
         assert self.virtual_stacks, "Appending substack requires initialization with virtual stack, " \
@@ -472,7 +527,6 @@ class BdvWriter(BdvBase):
                     self._subsample_stack(block, subsamp).astype(self._h5_dtype)
                 continue
             subdata = self._subsample_stack(substack, subsamp).astype(self._h5_dtype)
-            print(dataset.shape, subdata.shape, subsamp)
             sub_z_start = int(z_start/subsamp[0])
             sub_y_start = int(y_start/subsamp[1])
             sub_x_start = int(x_start/subsamp[2])
@@ -485,37 +539,44 @@ class BdvWriter(BdvBase):
                     m_affine=None, name_affine='manually defined',
                     voxel_size_xyz=(1, 1, 1), voxel_units='px', calibration=(1, 1, 1),
                     exposure_time=0, exposure_units='s'):
-        """
-        Write 3-dimensional numpy array (stack) to the h5 file with the specified timepoint `itime` and attributes.
-        
-        Parameters:
-        -----------
-            stack: numpy array or None
-                A 3-dimensional stack in (z,y,x) axis order.
-                If None, creates an empty dataset of size huge_stack_dim.
-            virtual_stack_dim: None, or tuple of (z,y,x) dimensions, optional.
-                Dimensions to allocate a huge stack and fill it later by individual planes or substacks.
-            time: int
-            illumination: int
-            channel: int
-            tile: int
-            angle: int
-                Indices of the view attributes, >= 0.
-            m_affine: a numpy array of shape (3,4), optional.
-                Coefficients of affine transformation matrix (m00, m01, ...). The last column is translation in (x,y,z).
-            name_affine: str, optional
-                Name of the affine transformation.
-            voxel_size_xyz: tuple of size 3, optional
-                The physical size of voxel, in voxel_units. Default (1, 1, 1).
-            voxel_units: str, optional
-                Spatial units, default is 'px'.
-            calibration: tuple of size 3, optional
-                The anisotropy factors for (x,y,z) voxel calibration. Default (1, 1, 1).
-                Leave it default unless you know how it affects transformations.
-            exposure_time: float, optional
-                Camera exposure time for this view, default 0.
-            exposure_units: str, optional
-                Time units for this view, default "s".
+        """Write a 3d stack as one view, or allocate a virtual stack to be filled later.
+
+        A view is identified by `time` and the attribute indices. Writing the same view twice replaces it.
+        All resolution levels given in `subsamp` are computed and written immediately.
+
+        Parameters
+        ----------
+        stack : numpy.ndarray or None
+            3d array in (z, y, x) order. It is cast to the writer's `dtype`.
+            If None, an empty *virtual stack* of shape `virtual_stack_dim` is allocated, to be filled
+            with `append_plane` or `append_substack` (for data larger than RAM).
+        virtual_stack_dim : tuple of int, optional
+            (nz, ny, nx) shape of the virtual stack. Required if `stack` is None.
+        time : int
+            Time point index, >= 0.
+        illumination, channel, tile, angle : int
+            Indices of the view attributes, >= 0 and below the numbers given to the writer.
+        m_affine : numpy.ndarray, optional
+            Affine transformation of shape (3, 4) applied to this view in BigDataViewer, e.g. the tile
+            position (last column: translation x, y, z in pixels) or a shear correction.
+        name_affine : str, optional
+            Name of the affine transformation, shown in BigStitcher.
+        voxel_size_xyz : tuple of float
+            Physical voxel size (x, y, z) in `voxel_units`. Default (1, 1, 1).
+        voxel_units : str
+            Unit of the voxel size, e.g. 'um'. Default 'px'.
+        calibration : tuple of float
+            Scaling (x, y, z) written as the 'calibration' transform. Default (1, 1, 1).
+            To display anisotropic voxels at the correct aspect ratio, set e.g. ``(1, 1, 4)``
+            for z-steps 4x larger than the pixel size.
+        exposure_time : float
+            Camera exposure time, stored as metadata. Default 0.
+        exposure_units : str
+            Unit of the exposure time. Default 's'.
+
+        Examples
+        --------
+        >>> writer.append_view(stack, time=0, channel=1, voxel_size_xyz=(0.5, 0.5, 2), voxel_units='um')
         """
         
         assert len(calibration) == 3, "Calibration must be a tuple of 3 elements (x, y, z)."
@@ -544,8 +605,8 @@ class BdvWriter(BdvBase):
                                    maxshape=(None, None, None), compression=self.compression, dtype=self._h5_dtype)
             else:  # a virtual stack initialized
                 grp.create_dataset('cells', chunks=self.chunks[ilevel],
-                                   shape=np.ceil(virtual_stack_dim / self.subsamp[ilevel]),
-                                   compression=self.compression, dtype=self._h5_dtype)
+                                   shape=tuple(np.ceil(virtual_stack_dim / self.subsamp[ilevel]).astype(int)),
+                                   maxshape=(None, None, None), compression=self.compression, dtype=self._h5_dtype)
         if m_affine is not None:
             self.affine_matrices[isetup] = m_affine.copy()
             self.affine_names[isetup] = name_affine
@@ -576,16 +637,17 @@ class BdvWriter(BdvBase):
 
     def write_xml(self, camera_name="default",  microscope_name="default",
                        microscope_version="0.0", user_name="user"):
-        """
-        Write XML header file for the HDF5 file.
+        """Write the XML file that describes the dataset. Call it after all views are written.
 
-        Parameters:
-        -----------
-            camera_name: str, optional
-                Name of the camera (same for all setups at the moment)
-            microscope_name: str, optional
-            microscope_version: str, optional
-            user_name: str, optional
+        The XML file lists views, their attributes, voxel sizes, transformations and missing views,
+        and points to the .h5 file by relative path. Fiji opens the dataset via this file.
+
+        Parameters
+        ----------
+        camera_name : str
+            Camera name, stored as metadata for all views.
+        microscope_name, microscope_version, user_name : str
+            Stored as metadata in the ``<generatedBy>`` element.
         """
         assert self.ntimes >= 1, "Total number of time points must be at least 1."
         root = ET.Element('SpimData')
@@ -703,26 +765,44 @@ class BdvWriter(BdvBase):
         self.setup_id_present[itime][isetup] = True
 
     def close(self):
-        """Save changes and close the H5 file."""
+        """Flush and close the H5 file. Call it last, after `write_xml`."""
         self._file_object_h5.flush()
         self._file_object_h5.close()
 
 
 class BdvEditor(BdvBase):
+    """Read and edit an existing BigDataViewer HDF5/XML file pair.
+
+    Works with files written by npy2bdv, Fiji/BigStitcher, or any other tool using the
+    BigDataViewer HDF5 format. The pixel type (uint16, uint8, float32) is detected from the H5 file.
+
+    .. warning::
+        Edits (`crop_view`, `append_affine`) change the files in place, without undo.
+        `finalize` keeps a backup of the previous XML file as ``<name>.xml~1``.
+
+    Parameters
+    ----------
+    filename : str
+        Path to the .xml or the .h5 file. Both files must exist. Given an .xml file, the .h5 file
+        it points to is used, so several XML files sharing one H5 file are supported.
+    mode : {'r+', 'r'}
+        'r+' (default) for reading and editing, 'r' for read-only access.
+
+    Attributes
+    ----------
+    ntimes, nilluminations, nchannels, ntiles, nangles : int
+        Number of time points and view attributes, read from the XML file.
+    dtype : numpy.dtype
+        Pixel type of the views.
+
+    Examples
+    --------
+    >>> editor = npy2bdv.BdvEditor("dataset.xml", mode='r')
+    >>> stack = editor.read_view(time=0, channel=1)
+    >>> editor.finalize()
+    """
 
     def __init__(self, filename, mode='r+'):
-        """
-        Class for reading and editing existing H5/XML file pairs.
-        Warning: Editing of H5/XML files occurs in-place, and there is currently no undo option. Use at your own risk.
-        Todo: add an option to save results as new XML file.
-
-        Parameters:
-        -----------
-            filename: string,
-                Path to either .h5 or .xml file. The other file of the pair must be present
-                in the same folder.
-            mode: string, optional, default 'r+' (read/write)
-        """
         super().__init__(filename)
         assert os.path.exists(self.filename_h5), f"Error: {self.filename_h5} file not found"
         assert os.path.exists(self.filename_xml), f"Error: {self.filename_xml} file not found"
@@ -735,11 +815,14 @@ class BdvEditor(BdvBase):
         self.dtype = np.dtype(data_type.decode() if isinstance(data_type, bytes) else data_type)
 
     def get_attribute_count(self):
-        """ Get the number of view attributes: time points, illuminations, channels, tiles, angles, using the XML file.
-        Returns:
-        --------
-        (ntimes, nilluminations, nchannels, ntiles, nangle)
-         """
+        """Count time points and view attributes in the XML file.
+
+        Returns
+        -------
+        tuple of int
+            ``(ntimes, nilluminations, nchannels, ntiles, nangles)``. The same values are available
+            as editor attributes.
+        """
         with open(self.filename_xml, 'r') as file:
             root = ET.parse(file).getroot()
             element = root.find("./SequenceDescription/Timepoints[@type='range']")
@@ -751,24 +834,35 @@ class BdvEditor(BdvBase):
         return nt, ni, nch, ntiles, nang
 
     def read_view(self, time=0, illumination=0, channel=0, tile=0, angle=0, ilevel=0, z=None):
-        """Read a view (a 3D stack or a single plane) specified by its time, attributes, and downsampling level into a numpy array of type self.dtype.
-        Todo: implement detection of missing views using XML file, return None.
+        """Read a view, or a single plane of it, into a numpy array.
 
-        Parameters:
-        -----------
-            time: int
-                Index of time point (default 0).
-            illumination: int
-            channel: int
-            tile: int
-            angle: int
-                Indices of the view attributes, >= 0.
-            ilevel: int
-                Level of subsampling, if available (default 0, no subsampling)
+        Parameters
+        ----------
+        time : int
+            Time point index, >= 0.
+        illumination, channel, tile, angle : int
+            Indices of the view attributes, >= 0.
+        ilevel : int
+            Resolution level: 0 (default) is full resolution, 1, 2... are the downsampled levels.
+        z : int, optional
+            If given, read only this plane (faster than reading the whole stack).
 
-        Returns:
+        Returns
+        -------
+        numpy.ndarray
+            3d array (z, y, x), or 2d array (y, x) if `z` is given, of type `dtype`.
+
+        Raises
+        ------
+        KeyError
+            If the view or level does not exist in the H5 file (e.g. a missing view).
+
+        Examples
         --------
-            dataset: numpy array (dim=3 or 2, dtype=self.dtype: uint16, uint8 or float32)"""
+        >>> stack = editor.read_view(time=0, channel=1)
+        >>> preview = editor.read_view(ilevel=2)
+        >>> plane = editor.read_view(z=100)
+        """
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         group_name = self._fmt.format(time, isetup, ilevel)
         if self._file_object_h5:
@@ -783,19 +877,27 @@ class BdvEditor(BdvBase):
             raise ValueError('File object is None')
 
     def crop_view(self, bbox_xyz=((1, -1), (1, -1), None), illumination=0, channel=0, tile=0, angle=0, ilevel=0):
-        """Crop a view in-place, both in H5 and XML files, for all time points.
+        """Crop a view in place, for all time points, in the H5 file and the XML file.
 
-        Parameters:
-        -----------
-            bbox_xyz: tuple of int
-                Bounding box of the crop. Default `((1, -1), (2, -2), None)` crops to view[1:-1, 2:-2, :].
-            illumination: int
-            channel: int
-            tile: int
-            angle: int
-                Indices of the view attributes, >= 0.
-            ilevel: int
-                Level of subsampling, if available (default 0, no subsampling)
+        The H5 data is cropped immediately; the new view size is written to the XML file by `finalize`.
+        Only the given resolution level is cropped.
+
+        Parameters
+        ----------
+        bbox_xyz : tuple
+            Crop ranges ``((x_start, x_stop), (y_start, y_stop), (z_start, z_stop))``, each used as a
+            Python slice (negative values count from the end). None leaves that axis uncropped.
+            Default ``((1, -1), (1, -1), None)`` removes a 1-px border in x and y.
+        illumination, channel, tile, angle : int
+            Indices of the view attributes, >= 0.
+        ilevel : int
+            Resolution level to crop, default 0.
+
+        Examples
+        --------
+        >>> editor = npy2bdv.BdvEditor("dataset.xml")
+        >>> editor.crop_view(bbox_xyz=((100, -100), None, (10, 200)), channel=0)
+        >>> editor.finalize()
         """
         isetup = self._determine_setup_id(illumination, channel, tile, angle)
         if self.mode == 'r':
@@ -827,20 +929,27 @@ class BdvEditor(BdvBase):
             raise FileNotFoundError(self.filename_h5)
 
     def get_view_property(self, key, illumination=0, channel=0, tile=0, angle=0) -> tuple:
-        """"Get property of a vew setup from XML file. No time information required, since the setups are fixed.
-        Tuples are returned in (x, y, z) order, as in the XML file.
-        Parameters:
-        -----------
-            key: str
-                Name of the property: 'voxel_size' | 'view_shape'
-            illumination: int
-            channel: int
-            tile: int
-            angle: int
-                Indices of the view attributes, >= 0.
-        Returns:
+        """Read a property of a view setup from the XML file.
+
+        Setups do not change over time, so no time index is needed.
+
+        Parameters
+        ----------
+        key : {'voxel_size', 'view_shape'}
+            'voxel_size': physical voxel size (floats); 'view_shape': view size in pixels (ints).
+        illumination, channel, tile, angle : int
+            Indices of the view attributes, >= 0.
+
+        Returns
+        -------
+        tuple
+            Value in (x, y, z) order, as stored in the XML file. Note that `read_view` returns
+            arrays in (z, y, x) order.
+
+        Examples
         --------
-            Value of the property, a tuple.
+        >>> editor.get_view_property('voxel_size')
+        (0.5, 0.5, 2.0)
         """
         accepted_keys = ['voxel_size', 'view_shape']
         assert key in accepted_keys, f"Key {key} not recognized, must be one of: {accepted_keys}."
@@ -859,7 +968,12 @@ class BdvEditor(BdvBase):
         return value
 
     def finalize(self):
-        """Finalize the H5 and XML files: save changes and close them."""
+        """Save pending changes and close the files. Call it when done with the editor.
+
+        The H5 file is flushed and closed. If the XML tree was loaded (by `read_affine`,
+        `append_affine`, `crop_view` or `get_view_property`), the XML file is rewritten, and the
+        previous version is kept as ``<name>.xml~1``.
+        """
         if self._file_object_h5 is not None:
             self._file_object_h5.flush()
             self._file_object_h5.close()

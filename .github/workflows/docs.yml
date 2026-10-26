@@ -22,17 +22,12 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: pip install . pdoc3
-      # API docs at the site root (index.html, npy2bdv.html), plus everything in docs/ (examples).
-      - run: |
-          pdoc --html -o _build npy2bdv
-          mkdir _site
-          cp -r docs/. _site/
-          cp _build/npy2bdv/*.html _site/
+      - run: pip install .[docs]
+      - run: sphinx-build -b html -W --keep-going docs/source docs/build/html
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: _site
+          path: docs/build/html
 
   deploy:
     needs: build
