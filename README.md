@@ -60,7 +60,7 @@ Larger, timed examples are in the Jupyter [`notebook`](/docs/examples/examples_h
  ## Acknowledgements
  This code was inspired by [Talley Lambert's](https://github.com/tlambert03/imarispy) code 
  and improved by generous input from Adam Glaser, [VolkerH](https://github.com/VolkerH), Doug Shepherd, 
- [Peter H](https://github.com/abred), [Mike Taormina](https://github.com/miketaormina) and [Pradeep Rajasekhar](https://github.com/pr4deepr).
+ [Peter H](https://github.com/abred), [Mike Taormina](https://github.com/miketaormina) [Pradeep Rajasekhar](https://github.com/pr4deepr) and [aaronkanzer](https://github.com/aaronkanzer).
  
  To report issues or bugs please use the [issues](https://github.com/nvladimus/npy2bdv/issues) tool.
  
@@ -69,9 +69,5 @@ Larger, timed examples are in the Jupyter [`notebook`](/docs/examples/examples_h
  
  [![DOI](https://zenodo.org/badge/203410946.svg)](https://zenodo.org/badge/latestdoi/203410946)
 
-## Support
-If you find this library useful, send me some love :blush:
-
-<a href="https://www.paypal.com/paypalme/NikitaVladimirov"><img src="/assets/donate-paypal-button-blue.svg" height="72"></a>
 
 It will give me some dopamine and motivation to keep improving it :heart: 
